@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Elden Ring — Interactive Boss Map</title>
+<style>
+  :root {
+    --bg: #15110d;
+    --panel: #221c14;
+    --panel-2: #2c241a;
+    --text: #e8dfc9;
+    --muted: #8a7e63;
+    --accent: #c9a96a;
+    --accent-2: #e6c987;
+    --border: #3a3024;
+    --required: #d97a3a;
+    --done: #6aa84f;
+    --marker: #efd896;
+    --marker-done: #6aa84f;
+    --marker-required: #d97a3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Georgia", "Cambria", serif;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    padding: 12px 22px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #2a221a, #1a1410);
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  h1 {
+    margin: 0; color: var(--accent-2);
+    font-size: 18px; letter-spacing: 1.5px;
+    flex-shrink: 0; font-variant: small-caps;
+  }
+  .progress-wrap {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: var(--muted);
+    flex: 1; min-width: 200px;
+  }
+  .bar {
+    flex: 1; height: 6px; background: var(--panel-2);
+    border-radius: 4px; overflow: hidden; max-width: 280px;
+    border: 1px solid var(--border);
+  }
+  .bar > div {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    width: 0%; transition: width 0.3s;
+  }
+  .tabs { display: flex; gap: 3px; }
+  .tab {
+    background: var(--panel); color: var(--muted);
+    border: 1px solid var(--border); padding: 6px 12px;
+    border-radius: 3px; cursor: pointer; font-family: inherit;
+    font-size: 12px; letter-spacing: 1px;
+    font-variant: small-caps;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--panel-2); color: var(--accent-2); border-color: var(--accent); }
+  .controls { display: flex; gap: 8px; }
+  button.ctrl {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); padding: 5px 12px;
+    border-radius: 3px; cursor: pointer; font-family: inherit;
+    font-size: 12px;
+  }
+  button.ctrl:hover { border-color: var(--accent); }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  .map-container {
+    flex: 1; position: relative; overflow: hidden;
+    background: radial-gradient(ellipse at center, #1c1610 0%, #0d0a07 100%);
+  }
+  .map-view { display: none; width: 100%; height: 100%; }
+  .map-view.active { display: block; }
+  svg.map { width: 100%; height: 100%; cursor: grab; }
+  svg.map:active { cursor: grabbing; }
+
+  .region-shape {
+    fill: var(--panel);
+    stroke: var(--border);
+    stroke-width: 2;
+    transition: fill 0.2s;
+  }
+  .region-shape:hover { fill: var(--panel-2); }
+  .region-label {
+    fill: var(--accent);
+    font-family: "Georgia", serif;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    text-anchor: middle;
+    pointer-events: none;
+    text-transform: uppercase;
+    opacity: 0.7;
+  }
+
+  .marker { cursor: pointer; transition: transform 0.15s; }
+  .marker circle {
+    fill: var(--marker);
+    stroke: #1a1410;
+    stroke-width: 1.5;
+    transition: fill 0.2s, r 0.15s;
+  }
+  .marker.required circle { fill: var(--marker-required); }
+  .marker.done circle { fill: var(--marker-done); }
+  .marker:hover circle { r: 8; }
+  .marker.done .check {
+    fill: #1a1410; font-size: 9px; font-weight: bold;
+    text-anchor: middle; pointer-events: none;
+  }
+
+  /* Sidebar */
+  aside {
+    width: 320px; background: var(--panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px;
+    flex-shrink: 0;
+  }
+  aside h2 {
+    margin: 0 0 12px; color: var(--accent-2);
+    font-size: 15px; letter-spacing: 1.5px;
+    border-bottom: 1px solid var(--border); padding-bottom: 8px;
+    font-variant: small-caps;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  aside h2 .toggle-all {
+    font-size: 11px; color: var(--muted); cursor: pointer;
+    text-transform: none; letter-spacing: 0; font-variant: normal;
+  }
+  aside h2 .toggle-all:hover { color: var(--accent); }
+  .region-block {
+    margin-bottom: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .region-block .region-header {
+    padding: 8px 12px; font-size: 13px;
+    color: var(--accent);
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; user-select: none;
+    transition: background 0.15s;
+  }
+  .region-block .region-header:hover { background: rgba(201,169,106,0.08); }
+  .region-block .region-header .left {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .region-block .region-header .chev {
+    display: inline-block; transition: transform 0.2s;
+    font-size: 10px; color: var(--muted);
+  }
+  .region-block.collapsed .region-header .chev { transform: rotate(-90deg); }
+  .region-block .region-header .rcount {
+    color: var(--muted); font-weight: normal; font-size: 12px;
+  }
+  .region-block ul {
+    list-style: none; padding: 0; margin: 0;
+    border-top: 1px solid var(--border);
+  }
+  .region-block.collapsed ul { display: none; }
+  .region-block li {
+    padding: 5px 12px; font-size: 12px;
+    border-bottom: 1px dashed #2a241c;
+    cursor: pointer; display: flex; gap: 8px; align-items: flex-start;
+  }
+  .region-block li:last-child { border-bottom: none; }
+  .region-block li:hover { background: rgba(201,169,106,0.08); }
+  .region-block li.done .name { text-decoration: line-through; color: var(--muted); }
+  .region-block li.required .name::after {
+    content: " ★"; color: var(--required);
+  }
+  .region-block li .marker-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--marker); flex-shrink: 0; margin-top: 4px;
+    border: 1px solid #1a1410;
+  }
+  .region-block li.required .marker-dot { background: var(--marker-required); }
+  .region-block li.done .marker-dot { background: var(--marker-done); }
+  .region-block li .loc {
+    color: var(--muted); font-size: 11px; font-style: italic;
+    display: block; margin-top: 1px;
+  }
+
+  #tooltip {
+    position: fixed; pointer-events: none;
+    background: rgba(20, 16, 12, 0.95);
+    border: 1px solid var(--accent);
+    color: var(--text); padding: 6px 10px;
+    border-radius: 4px; font-size: 12px;
+    z-index: 100; display: none;
+    max-width: 240px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  #tooltip .tname { color: var(--accent-2); font-weight: bold; display: block; }
+  #tooltip .tloc { color: var(--muted); font-style: italic; font-size: 11px; }
+
+  .legend {
+    position: absolute; bottom: 12px; left: 12px;
+    background: rgba(20, 16, 12, 0.85);
+    border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 4px;
+    font-size: 11px; color: var(--muted);
+    display: flex; gap: 12px; align-items: center;
+  }
+  .legend .swatch {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 4px;
+    vertical-align: middle; border: 1px solid #1a1410;
+  }
+  .legend .s1 { background: var(--marker); }
+  .legend .s2 { background: var(--marker-required); }
+  .legend .s3 { background: var(--marker-done); }
+
+  .zoom-ctrls {
+    position: absolute; top: 12px; right: 12px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .zoom-ctrls button {
+    width: 32px; height: 32px; font-size: 16px;
+    background: rgba(20,16,12,0.85); color: var(--accent);
+    border: 1px solid var(--border); border-radius: 4px;
+    cursor: pointer;
+  }
+  .zoom-ctrls button:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Elden Ring · Boss Map</h1>
+  <div class="tabs">
+    <button class="tab active" data-map="surface">Lands Between</button>
+    <button class="tab" data-map="underground">Underground</button>
+    <button class="tab" data-map="dlc">Land of Shadow</button>
+  </div>
+  <div class="progress-wrap">
+    <span id="count">0 / 0</span>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <span id="pct">0%</span>
+  </div>
+  <div class="controls">
+    <button class="ctrl" onclick="resetAll()">Reset</button>
+  </div>
+</header>
+<main>
+  <div class="map-container">
+    <div class="map-view active" id="map-surface"></div>
+    <div class="map-view" id="map-underground"></div>
+    <div class="map-view" id="map-dlc"></div>
+    <div class="legend">
+      <span><span class="swatch s1"></span>Optional</span>
+      <span><span class="swatch s2"></span>Required ★</span>
+      <span><span class="swatch s3"></span>Defeated</span>
+      <span style="margin-left:8px; font-style: italic;">Click marker to toggle</span>
+    </div>
+    <div class="zoom-ctrls">
+      <button onclick="zoom(1.25)">+</button>
+      <button onclick="zoom(0.8)">−</button>
+      <button onclick="resetZoom()" title="Reset view">⟲</button>
+    </div>
+  </div>
+  <aside id="sidebar"></aside>
+</main>
+<div id="tooltip"></div>
+
+<script>
+const MAPS = {
+  surface: {
+    title: "The Lands Between",
+    viewBox: "0 0 1000 800",
+    regions: [
+      { name: "Mt. Gelmir", points: "150,150 320,140 340,260 200,290 130,240" },
+      { name: "Altus Plateau", points: "320,140 600,150 620,330 340,330" },
+      { name: "Leyndell", points: "440,250 540,250 540,330 440,330" },
+      { name: "Mountaintops of the Giants", points: "620,150 900,150 920,330 620,330" },
+      { name: "Consecrated Snowfield", points: "650,40 880,40 900,150 620,150" },
+      { name: "Liurnia of the Lakes", points: "80,300 320,290 340,330 320,560 80,560" },
+      { name: "Caelid", points: "560,380 800,380 820,580 580,580" },
+      { name: "Dragonbarrow", points: "650,250 900,260 900,380 620,380" },
+      { name: "Limgrave", points: "320,560 580,580 580,720 320,720" },
+      { name: "Weeping Peninsula", points: "340,720 540,720 530,790 360,790" },
+      { name: "Crumbling Farum Azula", points: "850,420 980,440 970,560 870,580" },
+    ],
+    bosses: [
+      // Limgrave
+      { region: "Limgrave", name: "Soldier of Godrick", loc: "The First Step (tutorial)", x: 410, y: 700 },
+      { region: "Limgrave", name: "Grafted Scion", loc: "Chapel of Anticipation (intro)", x: 330, y: 580 },
+      { region: "Limgrave", name: "Tree Sentinel", loc: "South of First Step", x: 425, y: 685 },
+      { region: "Limgrave", name: "Beastman of Farum Azula", loc: "Groveside Cave", x: 380, y: 660 },
+      { region: "Limgrave", name: "Demi-Human Chief", loc: "Coastal Cave", x: 340, y: 705 },
+      { region: "Limgrave", name: "Patches", loc: "Murkwater Cave", x: 460, y: 645 },
+      { region: "Limgrave", name: "Flying Dragon Agheel", loc: "Agheel Lake", x: 470, y: 680 },
+      { region: "Limgrave", name: "Bloodhound Knight Darriwil", loc: "Forlorn Hound Evergaol", x: 440, y: 720 },
+      { region: "Limgrave", name: "Erdtree Burial Watchdog", loc: "Stormfoot Catacombs", x: 380, y: 620 },
+      { region: "Limgrave", name: "Mad Pumpkin Head", loc: "Waypoint Ruins", x: 510, y: 670 },
+      { region: "Limgrave", name: "Night's Cavalry", loc: "Agheel Lake bridge (night)", x: 490, y: 690 },
+      { region: "Limgrave", name: "Deathbird", loc: "Near Stormgate (night)", x: 410, y: 600 },
+      { region: "Limgrave", name: "Stonedigger Troll", loc: "Limgrave Tunnels", x: 470, y: 645 },
+      { region: "Limgrave", name: "Black Knife Assassin", loc: "Deathtouched Catacombs", x: 530, y: 600 },
+      { region: "Limgrave", name: "Tibia Mariner", loc: "Summonwater Village", x: 565, y: 615 },
+      { region: "Limgrave", name: "Erdtree Burial Watchdog (Murkwater)", loc: "Murkwater Catacombs", x: 470, y: 625 },
+      { region: "Limgrave", name: "Margit, the Fell Omen", loc: "Stormveil approach", x: 365, y: 600, required: true },
+      { region: "Limgrave", name: "Godrick the Grafted", loc: "Stormveil Castle", x: 355, y: 590, required: true },
+
+      // Weeping Peninsula
+      { region: "Weeping Peninsula", name: "Leonine Misbegotten", loc: "Castle Morne", x: 380, y: 780 },
+      { region: "Weeping Peninsula", name: "Ancient Hero of Zamor", loc: "Weeping Evergaol", x: 440, y: 740 },
+      { region: "Weeping Peninsula", name: "Erdtree Avatar", loc: "Minor Erdtree", x: 470, y: 755 },
+      { region: "Weeping Peninsula", name: "Cemetery Shade", loc: "Tombsward Catacombs", x: 415, y: 745 },
+      { region: "Weeping Peninsula", name: "Grave Warden Duelist", loc: "Impaler's Catacombs", x: 510, y: 745 },
+      { region: "Weeping Peninsula", name: "Night's Cavalry (Peninsula)", loc: "Bridge to Castle Morne", x: 405, y: 760 },
+      { region: "Weeping Peninsula", name: "Deathbird (Peninsula)", loc: "Tombsward Ruins (night)", x: 430, y: 770 },
+      { region: "Weeping Peninsula", name: "Tibia Mariner (Peninsula)", loc: "Weeping Peninsula coast", x: 495, y: 780 },
+      { region: "Weeping Peninsula", name: "Miranda the Blighted Bloom", loc: "Tombsward Cave", x: 400, y: 735 },
+      { region: "Weeping Peninsula", name: "Demi-Human Chief (Peninsula)", loc: "Demi-Human Forest Ruins", x: 460, y: 770 },
+
+      // Liurnia
+      { region: "Liurnia of the Lakes", name: "Glintstone Dragon Smarag", loc: "North Liurnia", x: 200, y: 320 },
+      { region: "Liurnia of the Lakes", name: "Royal Knight Loretta", loc: "Caria Manor", x: 130, y: 340 },
+      { region: "Liurnia of the Lakes", name: "Red Wolf of Radagon", loc: "Raya Lucaria", x: 220, y: 440, required: true },
+      { region: "Liurnia of the Lakes", name: "Rennala, Queen of the Full Moon", loc: "Raya Lucaria", x: 230, y: 450, required: true },
+      { region: "Liurnia of the Lakes", name: "Magma Wyrm Makar", loc: "Ruin-Strewn Precipice", x: 280, y: 320 },
+      { region: "Liurnia of the Lakes", name: "Bols, Carian Knight", loc: "Cuckoo's Evergaol", x: 195, y: 425 },
+      { region: "Liurnia of the Lakes", name: "Onyx Lord", loc: "Royal Grave Evergaol", x: 175, y: 470 },
+      { region: "Liurnia of the Lakes", name: "Adan, Thief of Fire", loc: "Malefactor's Evergaol", x: 250, y: 500 },
+      { region: "Liurnia of the Lakes", name: "Alecto, Black Knife Ringleader", loc: "Ringleader's Evergaol", x: 130, y: 470 },
+      { region: "Liurnia of the Lakes", name: "Black Knife Assassin (Liurnia)", loc: "Black Knife Catacombs", x: 120, y: 380 },
+      { region: "Liurnia of the Lakes", name: "Cemetery Shade (Liurnia)", loc: "Black Knife Catacombs", x: 130, y: 385 },
+      { region: "Liurnia of the Lakes", name: "Erdtree Burial Watchdog (Cliff)", loc: "Cliffbottom Catacombs", x: 250, y: 430 },
+      { region: "Liurnia of the Lakes", name: "Crystalian (Spear & Ringblade)", loc: "Academy Crystal Cave", x: 175, y: 405 },
+      { region: "Liurnia of the Lakes", name: "Crystalian (Staff)", loc: "Raya Lucaria Crystal Tunnel", x: 235, y: 470 },
+      { region: "Liurnia of the Lakes", name: "Necromancer Garris", loc: "Sage's Cave", x: 110, y: 440 },
+      { region: "Liurnia of the Lakes", name: "Death Rite Bird", loc: "Liurnia (night)", x: 165, y: 370 },
+      { region: "Liurnia of the Lakes", name: "Night's Cavalry (Liurnia)", loc: "Bellum Highway", x: 290, y: 400 },
+      { region: "Liurnia of the Lakes", name: "Tibia Mariner (Liurnia)", loc: "Jarburg / east Liurnia", x: 310, y: 510 },
+      { region: "Liurnia of the Lakes", name: "Erdtree Avatar (Liurnia)", loc: "Minor Erdtree, west Liurnia", x: 105, y: 410 },
+      { region: "Liurnia of the Lakes", name: "Royal Revenant", loc: "Kingsrealm Ruins", x: 145, y: 360 },
+      { region: "Liurnia of the Lakes", name: "Omenkiller", loc: "Village of the Albinaurics", x: 110, y: 510 },
+      { region: "Liurnia of the Lakes", name: "Glintstone Dragon Adula", loc: "Moonfolk Ruins", x: 115, y: 360 },
+      { region: "Liurnia of the Lakes", name: "Mad Pumpkin Head Duo", loc: "Caelem Ruins", x: 285, y: 470 },
+      { region: "Liurnia of the Lakes", name: "Miranda the Blighted Bloom (Liurnia)", loc: "Stillwater Cave", x: 275, y: 380 },
+      { region: "Liurnia of the Lakes", name: "Bloodhound Knight (Liurnia)", loc: "Lakeside Crystal Cave", x: 250, y: 540 },
+
+      // Caelid
+      { region: "Caelid", name: "Starscourge Radahn", loc: "Redmane Castle (festival)", x: 790, y: 570, required: true },
+      { region: "Caelid", name: "Commander O'Neil", loc: "Swamp of Aeonia", x: 700, y: 480 },
+      { region: "Caelid", name: "Decaying Ekzykes", loc: "Caelid Highway North", x: 620, y: 420 },
+      { region: "Caelid", name: "Putrid Avatar (Caelid)", loc: "Minor Erdtree, Caelid", x: 670, y: 430 },
+      { region: "Caelid", name: "Battlemage Hugues", loc: "Sellia Crystal Tunnel", x: 750, y: 440 },
+      { region: "Caelid", name: "Frenzied Duelist", loc: "Forsaken Ruins (cellar)", x: 645, y: 525 },
+      { region: "Caelid", name: "Cleanrot Knight", loc: "Stillwater Cave", x: 680, y: 555 },
+      { region: "Caelid", name: "Beastman of Farum Azula (Dragonbarrow)", loc: "Dragonbarrow Cave", x: 800, y: 320 },
+      { region: "Caelid", name: "Nox Swordstress & Nox Priest", loc: "Sellia Hideaway", x: 770, y: 460 },
+      { region: "Caelid", name: "Putrid Crystalians", loc: "Sellia Hideaway", x: 765, y: 470 },
+      { region: "Caelid", name: "Night's Cavalry (Caelid)", loc: "Caelid Highway", x: 615, y: 460 },
+      { region: "Caelid", name: "Black Blade Kindred", loc: "Bestial Sanctum bridge", x: 870, y: 290 },
+      { region: "Caelid", name: "Putrid Tree Spirit", loc: "War-Dead Catacombs", x: 720, y: 510 },
+      { region: "Caelid", name: "Monstrous Crow", loc: "Caelid wilderness", x: 660, y: 470 },
+      { region: "Caelid", name: "Greyoll", loc: "Dragonbarrow", x: 770, y: 320 },
+      { region: "Caelid", name: "Flying Dragon Greyll", loc: "Dragonbarrow plateau", x: 720, y: 305 },
+      { region: "Caelid", name: "Putrid Avatar (Dragonbarrow)", loc: "Dragonbarrow Minor Erdtree", x: 850, y: 305 },
+      { region: "Caelid", name: "Erdtree Burial Watchdog (Caelid)", loc: "Caelid Catacombs", x: 750, y: 545 },
+      { region: "Caelid", name: "Cemetery Shade (Caelid)", loc: "Caelid Catacombs", x: 760, y: 555 },
+      { region: "Caelid", name: "Crucible Knight & Misbegotten Warrior", loc: "Redmane Castle (after Radahn)", x: 800, y: 580 },
+      { region: "Caelid", name: "Magma Wyrm (Gael Tunnel)", loc: "Gael Tunnel", x: 605, y: 530 },
+
+      // Altus Plateau
+      { region: "Altus Plateau", name: "Tree Sentinel Duo", loc: "Outer Wall Phantom Tree", x: 400, y: 290 },
+      { region: "Altus Plateau", name: "Ancient Dragon Lansseax", loc: "Altus Plateau", x: 480, y: 200 },
+      { region: "Altus Plateau", name: "Sanguine Noble", loc: "Writheblood Ruins", x: 380, y: 260 },
+      { region: "Altus Plateau", name: "Wormface", loc: "Woodfolk Ruins", x: 580, y: 240 },
+      { region: "Altus Plateau", name: "Stonedigger Troll (Altus)", loc: "Old Altus Tunnel", x: 415, y: 245 },
+      { region: "Altus Plateau", name: "Erdtree Avatar (Altus)", loc: "Minor Erdtree, Altus", x: 350, y: 270 },
+      { region: "Altus Plateau", name: "Fallingstar Beast", loc: "Eastern Altus", x: 600, y: 200 },
+      { region: "Altus Plateau", name: "Black Knife Assassin (Sainted)", loc: "Sainted Hero's Grave", x: 360, y: 195 },
+      { region: "Altus Plateau", name: "Misbegotten Warrior & Perfumer Tricia", loc: "Sainted Hero's Grave", x: 365, y: 205 },
+      { region: "Altus Plateau", name: "Tibia Mariner (Altus)", loc: "Wyndham Ruins", x: 360, y: 240 },
+      { region: "Altus Plateau", name: "Onyx Lord (Altus)", loc: "Sealed Tunnel", x: 520, y: 320 },
+      { region: "Altus Plateau", name: "Tree Sentinel (Altus south)", loc: "South of Altus tableland", x: 500, y: 320 },
+
+      // Mt. Gelmir
+      { region: "Mt. Gelmir", name: "Magma Wyrm (Gelmir)", loc: "Mt. Gelmir slope", x: 250, y: 175 },
+      { region: "Mt. Gelmir", name: "Full-Grown Fallingstar Beast", loc: "Ninth Mt. Gelmir Campsite", x: 295, y: 165 },
+      { region: "Mt. Gelmir", name: "Demi-Human Queen Maggie", loc: "Hermit Village", x: 175, y: 240 },
+      { region: "Mt. Gelmir", name: "Abductor Virgins (Duo)", loc: "Mt. Gelmir cliffside", x: 200, y: 195 },
+      { region: "Mt. Gelmir", name: "Red Wolf of the Champion", loc: "Gelmir Hero's Grave", x: 230, y: 220 },
+      { region: "Mt. Gelmir", name: "Ulcerated Tree Spirit", loc: "Gelmir Hero's Grave", x: 235, y: 230 },
+      { region: "Mt. Gelmir", name: "Kindred of Rot Duo", loc: "Seethewater Cave", x: 280, y: 200 },
+      { region: "Mt. Gelmir", name: "Demi-Human Queen Margot", loc: "Volcano Cave", x: 215, y: 175 },
+      { region: "Mt. Gelmir", name: "Godskin Noble", loc: "Volcano Manor", x: 320, y: 175, required: true },
+      { region: "Mt. Gelmir", name: "Abductor Virgins (Volcano Manor)", loc: "Volcano Manor halls", x: 325, y: 185 },
+      { region: "Mt. Gelmir", name: "Rykard, Lord of Blasphemy", loc: "Volcano Manor", x: 330, y: 195, required: true },
+
+      // Leyndell
+      { region: "Leyndell", name: "Draconic Tree Sentinel", loc: "Capital outskirts", x: 470, y: 270, required: true },
+      { region: "Leyndell", name: "Godfrey, First Elden Lord (Golden Shade)", loc: "Leyndell", x: 490, y: 290 },
+      { region: "Leyndell", name: "Mohg, the Omen", loc: "Subterranean Shunning-Grounds", x: 510, y: 320 },
+      { region: "Leyndell", name: "Esgar, Priest of Blood", loc: "Subterranean Shunning-Grounds", x: 520, y: 325 },
+      { region: "Leyndell", name: "Erdtree Avatar (Leyndell)", loc: "Minor Erdtree, Capital outskirts", x: 540, y: 285 },
+      { region: "Leyndell", name: "Morgott, the Omen King", loc: "Leyndell", x: 480, y: 305, required: true },
+      { region: "Leyndell", name: "Ulcerated Tree Spirit (Leyndell)", loc: "Hidden Path / Capital sewers", x: 460, y: 315 },
+      { region: "Leyndell", name: "Sir Gideon Ofnir, the All-Knowing", loc: "Erdtree Sanctuary (Endgame)", x: 490, y: 275, required: true },
+      { region: "Leyndell", name: "Godfrey / Hoarah Loux", loc: "Elden Throne (Endgame)", x: 500, y: 280, required: true },
+      { region: "Leyndell", name: "Radagon / Elden Beast", loc: "Elden Throne (Endgame)", x: 510, y: 285, required: true },
+
+      // Mountaintops of the Giants
+      { region: "Mountaintops of the Giants", name: "Borealis the Freezing Fog", loc: "Freezing Lake", x: 760, y: 220 },
+      { region: "Mountaintops of the Giants", name: "Roundtable Knight Vyke", loc: "Lord Contender's Evergaol", x: 720, y: 280 },
+      { region: "Mountaintops of the Giants", name: "Ancient Hero of Zamor (Mountaintops)", loc: "Zamor Ruins", x: 670, y: 240 },
+      { region: "Mountaintops of the Giants", name: "Death Rite Bird (Mountaintops)", loc: "Mountaintops", x: 700, y: 200 },
+      { region: "Mountaintops of the Giants", name: "Erdtree Avatar (Mountaintops)", loc: "Minor Erdtree", x: 740, y: 195 },
+      { region: "Mountaintops of the Giants", name: "Night's Cavalry (Duo)", loc: "Forbidden Lands bridge", x: 640, y: 280 },
+      { region: "Mountaintops of the Giants", name: "Stray Mimic Tear (Mountaintops)", loc: "Mountaintops cellar", x: 800, y: 260 },
+      { region: "Mountaintops of the Giants", name: "Ulcerated Tree Spirit (Mountaintops)", loc: "Giants' Mountaintop Catacombs", x: 770, y: 290 },
+      { region: "Mountaintops of the Giants", name: "Putrid Avatar (Mountaintops)", loc: "Minor Erdtree (snowy)", x: 820, y: 240 },
+      { region: "Mountaintops of the Giants", name: "Great Wyrm Theodorix", loc: "Albinauric Rise area", x: 850, y: 215 },
+      { region: "Mountaintops of the Giants", name: "Commander Niall", loc: "Castle Sol", x: 880, y: 200 },
+      { region: "Mountaintops of the Giants", name: "Fire Giant", loc: "Giants' Forge", x: 870, y: 320, required: true },
+
+      // Consecrated Snowfield
+      { region: "Consecrated Snowfield", name: "Putrid Avatar (Snowfield)", loc: "Minor Erdtree, Snowfield", x: 740, y: 100 },
+      { region: "Consecrated Snowfield", name: "Misbegotten Crusader", loc: "Cave of the Forlorn", x: 680, y: 90 },
+      { region: "Consecrated Snowfield", name: "Death Rite Bird (Snowfield)", loc: "Ordina, Liturgical Town outskirts", x: 800, y: 95 },
+      { region: "Consecrated Snowfield", name: "Night's Cavalry (Duo, Snowfield)", loc: "Snowfield bridge", x: 720, y: 130 },
+      { region: "Consecrated Snowfield", name: "Sanguine Noble (Snowfield)", loc: "Yelough Anix Ruins", x: 770, y: 130 },
+      { region: "Consecrated Snowfield", name: "Astel, Stars of Darkness", loc: "Yelough Anix Tunnel", x: 760, y: 75 },
+      { region: "Consecrated Snowfield", name: "Putrid Grave Warden Duelist", loc: "Consecrated Snowfield Catacombs", x: 830, y: 130 },
+
+      // Crumbling Farum Azula
+      { region: "Crumbling Farum Azula", name: "Beastman of Farum Azula (Duo)", loc: "Dragon Temple approach", x: 895, y: 470 },
+      { region: "Crumbling Farum Azula", name: "Godskin Duo", loc: "Dragon Temple", x: 920, y: 490, required: true },
+      { region: "Crumbling Farum Azula", name: "Misbegotten Crusader (Farum)", loc: "Dragon Temple Rooftop", x: 940, y: 520 },
+      { region: "Crumbling Farum Azula", name: "Dragonlord Placidusax", loc: "Beside the Great Bridge (secret)", x: 880, y: 510 },
+      { region: "Crumbling Farum Azula", name: "Maliketh, the Black Blade", loc: "Beside the Great Bridge", x: 900, y: 540, required: true },
+    ]
+  },
+
+  underground: {
+    title: "The Underground",
+    viewBox: "0 0 1000 800",
+    regions: [
+      { name: "Siofra River", points: "100,100 380,100 380,260 100,260" },
+      { name: "Ainsel River", points: "620,100 900,100 900,260 620,260" },
+      { name: "Nokron, Eternal City", points: "100,300 380,300 380,460 100,460" },
+      { name: "Nokstella, Eternal City", points: "620,300 900,300 900,460 620,460" },
+      { name: "Lake of Rot", points: "620,500 900,500 900,640 620,640" },
+      { name: "Deeproot Depths", points: "100,500 380,500 380,640 100,640" },
+      { name: "Mohgwyn Palace", points: "380,680 620,680 620,780 380,780" },
+    ],
+    bosses: [
+      { region: "Siofra River", name: "Ancestor Spirit", loc: "Hallowhorn Grounds", x: 200, y: 180 },
+      { region: "Siofra River", name: "Dragonkin Soldier (Siofra)", loc: "Siofra River well", x: 300, y: 200 },
+      { region: "Ainsel River", name: "Dragonkin Soldier of Nokstella", loc: "Ainsel River Main", x: 720, y: 180 },
+      { region: "Ainsel River", name: "Mimic Tear (Ainsel)", loc: "Nokstella tomb", x: 820, y: 200 },
+      { region: "Nokron, Eternal City", name: "Mimic Tear (Nokron)", loc: "Nokron, Night's Sacred Ground", x: 200, y: 380 },
+      { region: "Nokron, Eternal City", name: "Regal Ancestor Spirit", loc: "Hallowhorn Grounds (Nokron)", x: 290, y: 400 },
+      { region: "Nokron, Eternal City", name: "Valiant Gargoyles (Duo)", loc: "Siofra Aqueduct", x: 240, y: 370 },
+      { region: "Nokstella, Eternal City", name: "Mimic Tear (Nokstella)", loc: "Nokstella", x: 760, y: 380 },
+      { region: "Lake of Rot", name: "Astel, Naturalborn of the Void", loc: "Grand Cloister", x: 760, y: 580 },
+      { region: "Deeproot Depths", name: "Crucible Knight Siluria", loc: "Deeproot Depths", x: 200, y: 580 },
+      { region: "Deeproot Depths", name: "Fia's Champions (3v1)", loc: "Prince of Death's Throne", x: 290, y: 600 },
+      { region: "Deeproot Depths", name: "Lichdragon Fortissax", loc: "Prince of Death's Throne", x: 310, y: 615 },
+      { region: "Mohgwyn Palace", name: "Mohg, Lord of Blood", loc: "Cocoon of the Empyrean", x: 500, y: 740 },
+    ]
+  },
+
+  dlc: {
+    title: "The Land of Shadow (Shadow of the Erdtree)",
+    viewBox: "0 0 1000 800",
+    regions: [
+      { name: "Gravesite Plain", points: "150,400 450,400 450,640 150,640" },
+      { name: "Belurat", points: "70,500 150,490 150,600 70,610" },
+      { name: "Castle Ensis", points: "300,330 430,330 430,400 300,400" },
+      { name: "Scadu Altus", points: "450,250 750,250 750,520 450,520" },
+      { name: "Shadow Keep", points: "550,180 730,180 730,260 550,260" },
+      { name: "Cerulean Coast", points: "150,650 470,650 470,780 150,780" },
+      { name: "Charo's Hidden Grave", points: "470,650 600,650 600,780 470,780" },
+      { name: "Abyssal Woods", points: "70,200 280,200 280,380 70,380" },
+      { name: "Finger Ruins", points: "770,400 950,400 950,560 770,560" },
+      { name: "Jagged Peak", points: "770,580 950,580 950,780 770,780" },
+      { name: "Enir-Ilim", points: "550,80 800,80 800,170 550,170" },
+    ],
+    bosses: [
+      { region: "Gravesite Plain", name: "Divine Beast Dancing Lion", loc: "Belurat, Tower Settlement", x: 110, y: 545, required: true },
+      { region: "Gravesite Plain", name: "Blackgaol Knight", loc: "Western Nameless Mausoleum", x: 200, y: 460 },
+      { region: "Gravesite Plain", name: "Demi-Human Swordmaster Onze", loc: "Fog Rift Catacombs", x: 240, y: 510 },
+      { region: "Gravesite Plain", name: "Curseblade Manikin", loc: "Belurat Gaol", x: 110, y: 575 },
+      { region: "Gravesite Plain", name: "Rugalea the Great Red Bear", loc: "Rauh Ancient Ruins approach", x: 320, y: 470 },
+      { region: "Gravesite Plain", name: "Erdtree Avatar (Shadow)", loc: "Minor Erdtree, Gravesite Plain", x: 380, y: 500 },
+      { region: "Gravesite Plain", name: "Death Rite Bird (Shadow)", loc: "Gravesite Plain (night)", x: 250, y: 580 },
+      { region: "Gravesite Plain", name: "Black Knight Edredd", loc: "Gravesite Plain ruins", x: 340, y: 590 },
+      { region: "Gravesite Plain", name: "Furnace Golem (Gravesite)", loc: "Gravesite Plain", x: 410, y: 600 },
+      { region: "Gravesite Plain", name: "Tree Sentinel (Torrent)", loc: "Highroad Cross approach", x: 430, y: 410 },
+      { region: "Castle Ensis", name: "Rellana, Twin Moon Knight", loc: "Castle Ensis", x: 365, y: 365, required: true },
+      { region: "Castle Ensis", name: "Moonrithyll, Carian Knight", loc: "Castle Ensis (mini)", x: 320, y: 350 },
+      { region: "Scadu Altus", name: "Golden Hippopotamus", loc: "Shadow Keep main gate", x: 600, y: 280 },
+      { region: "Scadu Altus", name: "Scadutree Avatar", loc: "Scaduview / Highroad", x: 530, y: 320 },
+      { region: "Scadu Altus", name: "Tree Sentinel (Scadu)", loc: "Scadu Altus", x: 580, y: 380 },
+      { region: "Scadu Altus", name: "Black Knight Garrew", loc: "Scaduview", x: 670, y: 290 },
+      { region: "Scadu Altus", name: "Demi-Human Swordmaster (Fog Rift Fort)", loc: "Fog Rift Fort area", x: 700, y: 380 },
+      { region: "Scadu Altus", name: "Death Knight (Fog Rift)", loc: "Fog Rift Fort", x: 690, y: 400 },
+      { region: "Scadu Altus", name: "Furnace Golem (Scadu)", loc: "Scadu Altus", x: 480, y: 410 },
+      { region: "Scadu Altus", name: "Romina, Saint of the Bud", loc: "Church of the Bud", x: 720, y: 470, required: true },
+      { region: "Shadow Keep", name: "Commander Gaius", loc: "Shadow Keep west rampart", x: 580, y: 220 },
+      { region: "Shadow Keep", name: "Messmer the Impaler", loc: "Shadow Keep, Storehouse", x: 680, y: 215, required: true },
+      { region: "Shadow Keep", name: "Putrescent Knight", loc: "Stone Coffin Fissure", x: 620, y: 240 },
+      { region: "Shadow Keep", name: "Death Knight (Stone Coffin)", loc: "Stone Coffin Fissure", x: 640, y: 250 },
+      { region: "Shadow Keep", name: "Putrid Avatar (Recluses)", loc: "Recluses' River Downstream", x: 700, y: 245 },
+      { region: "Shadow Keep", name: "Divine Beast Dancing Lion (rematch)", loc: "Shadow Keep (optional)", x: 660, y: 230 },
+      { region: "Cerulean Coast", name: "Ghostflame Dragon", loc: "Cerulean Coast", x: 230, y: 720 },
+      { region: "Cerulean Coast", name: "Death Rite Bird (Cerulean)", loc: "Cerulean Coast", x: 320, y: 740 },
+      { region: "Cerulean Coast", name: "Fallingstar Beast (Cerulean)", loc: "Cerulean Coast", x: 400, y: 720 },
+      { region: "Cerulean Coast", name: "Demi-Human Queen Marigga", loc: "Cerulean Coast cave", x: 200, y: 750 },
+      { region: "Charo's Hidden Grave", name: "Putrescent Knight (encounter)", loc: "Charo's Hidden Grave area", x: 530, y: 720 },
+      { region: "Jagged Peak", name: "Ancient Dragon-Man", loc: "Jagged Peak base", x: 850, y: 740 },
+      { region: "Jagged Peak", name: "Dragonkin Soldier (Jagged Peak)", loc: "Jagged Peak", x: 870, y: 680 },
+      { region: "Jagged Peak", name: "Bayle the Dread", loc: "Jagged Peak summit", x: 890, y: 620 },
+      { region: "Abyssal Woods", name: "Jori, Elder Inquisitor", loc: "Manus Metyr", x: 175, y: 290 },
+      { region: "Abyssal Woods", name: "Midra, Lord of Frenzied Flame", loc: "Midra's Manse", x: 220, y: 340 },
+      { region: "Finger Ruins", name: "Metyr, Mother of Fingers", loc: "Cathedral of the Forsaken", x: 870, y: 480 },
+      { region: "Finger Ruins", name: "Scadutree Avatar (Duo)", loc: "Hinterland", x: 820, y: 530 },
+      { region: "Enir-Ilim", name: "Promised Consort Radahn", loc: "Enir-Ilim", x: 670, y: 125, required: true },
+    ]
+  }
+};
+
+// ========== STATE ==========
+const STORAGE_KEY = "elden-ring-bosses-map-v1";
+const COLLAPSE_KEY = "elden-ring-collapsed-v1";
+
+const state = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; } })();
+const collapsed = (() => { try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}"); } catch { return {}; } })();
+const saveState = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+const saveCollapsed = () => localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
+const bossId = (mapKey, idx) => `${mapKey}-${idx}`;
+
+let activeMap = "surface";
+const transforms = { surface: { x: 0, y: 0, k: 1 }, underground: { x: 0, y: 0, k: 1 }, dlc: { x: 0, y: 0, k: 1 } };
+
+// ========== RENDER ==========
+function renderMap(mapKey) {
+  const map = MAPS[mapKey];
+  const container = document.getElementById("map-" + mapKey);
+  let svg = `<svg class="map" viewBox="${map.viewBox}" preserveAspectRatio="xMidYMid meet" id="svg-${mapKey}">`;
+  svg += `<g id="zoom-${mapKey}">`;
+
+  map.regions.forEach(r => {
+    svg += `<polygon class="region-shape" points="${r.points}" />`;
+    const pts = r.points.split(" ").map(p => p.split(",").map(Number));
+    const cx = pts.reduce((s,p)=>s+p[0],0) / pts.length;
+    const cy = pts.reduce((s,p)=>s+p[1],0) / pts.length;
+    svg += `<text class="region-label" x="${cx}" y="${cy}">${r.name}</text>`;
+  });
+
+  map.bosses.forEach((b, i) => {
+    const id = bossId(mapKey, i);
+    const done = !!state[id];
+    const cls = "marker" + (b.required ? " required" : "") + (done ? " done" : "");
+    svg += `<g class="${cls}" data-mapkey="${mapKey}" data-idx="${i}" transform="translate(${b.x},${b.y})">`;
+    svg += `<circle r="6" />`;
+    if (done) svg += `<text class="check" y="3">✓</text>`;
+    svg += `</g>`;
+  });
+
+  svg += `</g></svg>`;
+  container.innerHTML = svg;
+
+  container.querySelectorAll(".marker").forEach(m => {
+    m.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const mk = m.dataset.mapkey;
+      const idx = +m.dataset.idx;
+      const id = bossId(mk, idx);
+      state[id] = !state[id];
+      saveState();
+      renderMap(mk);
+      renderSidebar();
+      updateProgress();
+    });
+    m.addEventListener("mouseenter", (e) => {
+      const idx = +m.dataset.idx;
+      showTooltip(e, MAPS[m.dataset.mapkey].bosses[idx]);
+    });
+    m.addEventListener("mousemove", moveTooltip);
+    m.addEventListener("mouseleave", hideTooltip);
+  });
+
+  setupPanZoom(mapKey);
+}
+
+function renderSidebar() {
+  const sb = document.getElementById("sidebar");
+  const map = MAPS[activeMap];
+  const groups = {};
+  const regionOrder = [];
+  map.bosses.forEach((b, i) => {
+    if (!groups[b.region]) { groups[b.region] = []; regionOrder.push(b.region); }
+    groups[b.region].push({ ...b, _idx: i });
+  });
+
+  let html = `<h2>${map.title}<span class="toggle-all" onclick="toggleAllRegions()">expand/collapse all</span></h2>`;
+  regionOrder.forEach(regionName => {
+    const list = groups[regionName];
+    const total = list.length;
+    const done = list.filter(b => state[bossId(activeMap, b._idx)]).length;
+    const collapsedKey = activeMap + "::" + regionName;
+    const isCollapsed = !!collapsed[collapsedKey];
+    html += `<div class="region-block ${isCollapsed ? "collapsed" : ""}">
+      <div class="region-header" onclick="toggleRegion('${collapsedKey}')">
+        <div class="left"><span class="chev">▼</span><span>${regionName}</span></div>
+        <span class="rcount">${done}/${total}</span>
+      </div>
+      <ul>`;
+    list.forEach(b => {
+      const id = bossId(activeMap, b._idx);
+      const isDone = !!state[id];
+      const cls = (isDone ? "done " : "") + (b.required ? "required" : "");
+      html += `<li class="${cls}" data-idx="${b._idx}">
+        <span class="marker-dot"></span>
+        <span>
+          <span class="name">${b.name}</span>
+          ${b.loc ? `<span class="loc">${b.loc}</span>` : ""}
+        </span>
+      </li>`;
+    });
+    html += `</ul></div>`;
+  });
+  sb.innerHTML = html;
+  sb.querySelectorAll("li").forEach(li => {
+    li.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = +li.dataset.idx;
+      const id = bossId(activeMap, idx);
+      state[id] = !state[id];
+      saveState();
+      renderMap(activeMap);
+      renderSidebar();
+      updateProgress();
+    });
+  });
+}
+
+function toggleRegion(key) {
+  collapsed[key] = !collapsed[key];
+  saveCollapsed();
+  renderSidebar();
+}
+function toggleAllRegions() {
+  const map = MAPS[activeMap];
+  const regions = [...new Set(map.bosses.map(b => b.region))];
+  const anyOpen = regions.some(r => !collapsed[activeMap + "::" + r]);
+  regions.forEach(r => collapsed[activeMap + "::" + r] = anyOpen);
+  saveCollapsed();
+  renderSidebar();
+}
+
+function updateProgress() {
+  let total = 0, done = 0;
+  Object.keys(MAPS).forEach(mk => {
+    MAPS[mk].bosses.forEach((b, i) => {
+      total++;
+      if (state[bossId(mk, i)]) done++;
+    });
+  });
+  document.getElementById("count").textContent = `${done} / ${total}`;
+  const pct = total ? Math.round(done / total * 100) : 0;
+  document.getElementById("bar-fill").style.width = pct + "%";
+  document.getElementById("pct").textContent = pct + "%";
+}
+
+const tt = document.getElementById("tooltip");
+function showTooltip(e, b) {
+  tt.innerHTML = `<span class="tname">${b.name}${b.required ? ' ★' : ''}</span><span class="tloc">${b.loc}</span>`;
+  tt.style.display = "block";
+  moveTooltip(e);
+}
+function moveTooltip(e) {
+  tt.style.left = (e.clientX + 12) + "px";
+  tt.style.top = (e.clientY + 12) + "px";
+}
+function hideTooltip() { tt.style.display = "none"; }
+
+function setupPanZoom(mapKey) {
+  const svg = document.getElementById("svg-" + mapKey);
+  const g = document.getElementById("zoom-" + mapKey);
+  if (!svg || !g) return;
+  const t = transforms[mapKey];
+  applyTransform(g, t);
+  let dragging = false, lastX = 0, lastY = 0;
+  svg.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".marker")) return;
+    dragging = true;
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    t.x += (e.clientX - lastX);
+    t.y += (e.clientY - lastY);
+    lastX = e.clientX; lastY = e.clientY;
+    applyTransform(g, t);
+  });
+  window.addEventListener("mouseup", () => dragging = false);
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    t.k = Math.max(0.5, Math.min(4, t.k * factor));
+    applyTransform(g, t);
+  }, { passive: false });
+}
+function applyTransform(g, t) { g.setAttribute("transform", `translate(${t.x} ${t.y}) scale(${t.k})`); }
+function zoom(factor) {
+  const t = transforms[activeMap];
+  t.k = Math.max(0.5, Math.min(4, t.k * factor));
+  const g = document.getElementById("zoom-" + activeMap);
+  if (g) applyTransform(g, t);
+}
+function resetZoom() {
+  transforms[activeMap] = { x: 0, y: 0, k: 1 };
+  const g = document.getElementById("zoom-" + activeMap);
+  if (g) applyTransform(g, transforms[activeMap]);
+}
+
+function resetAll() {
+  if (!confirm("Reset all boss progress across every map?")) return;
+  Object.keys(state).forEach(k => delete state[k]);
+  saveState();
+  Object.keys(MAPS).forEach(renderMap);
+  renderSidebar();
+  updateProgress();
+}
+
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".map-view").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    activeMap = t.dataset.map;
+    document.getElementById("map-" + activeMap).classList.add("active");
+    renderSidebar();
+  });
+});
+
+Object.keys(MAPS).forEach(renderMap);
+renderSidebar();
+updateProgress();
+</script>
+</body>
+</html>

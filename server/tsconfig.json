@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["bun-types"],
+    "baseUrl": ".",
+    "paths": {
+      "shared": ["../shared/src/index.ts"]
+    }
+  },
+  "include": ["src", "drizzle.config.ts"]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "forecasting",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["shared", "server", "web"],
+  "scripts": {
+    "dev": "bun run --filter='server' --filter='web' dev",
+    "dev:server": "cd server && bun run dev",
+    "dev:web": "cd web && bun run dev",
+    "db:generate": "cd server && bun run db:generate",
+    "db:migrate": "cd server && bun run db:migrate",
+    "db:push": "cd server && bun run db:push",
+    "db:studio": "cd server && bun run db:studio"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
