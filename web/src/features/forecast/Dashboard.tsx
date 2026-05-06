@@ -2,17 +2,20 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { ForecastHorizon } from 'shared'
 import { Card } from '../../components/Card'
+import { Modal } from '../../components/Modal'
 import { AddPasskeyCard } from '../auth/AddPasskeyCard'
 import { useAccounts } from '../accounts/queries'
 import { CategoryPieChart } from './CategoryPieChart'
 import { ForecastChart } from './ForecastChart'
 import { ForecastWarnings, GoalStatus } from './GoalStatus'
 import { HorizonSelector } from './HorizonSelector'
+import { OneTimeTransactionForm } from './OneTimeTransactionForm'
 import { SummaryTiles } from './SummaryTiles'
 import { useForecast } from './queries'
 
 export function Dashboard() {
   const [horizon, setHorizon] = useState<ForecastHorizon>('3m')
+  const [addOpen, setAddOpen] = useState(false)
   const { data: accounts } = useAccounts()
   const { data: forecast, isLoading, error } = useForecast(horizon)
 
@@ -51,11 +54,28 @@ export function Dashboard() {
       <Card>
         <div className="forecast-chart-header">
           <h3 style={{ margin: 0 }}>Available balance</h3>
-          <HorizonSelector value={horizon} onChange={setHorizon} />
+          <div className="forecast-chart-header__actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setAddOpen(true)}
+            >
+              + Add transaction
+            </button>
+            <HorizonSelector value={horizon} onChange={setHorizon} />
+          </div>
         </div>
         {isLoading && <p className="muted">Loading…</p>}
         {forecast && <ForecastChart forecast={forecast} horizon={horizon} />}
       </Card>
+
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add one-time transaction"
+      >
+        <OneTimeTransactionForm onSuccess={() => setAddOpen(false)} />
+      </Modal>
 
       {forecast && (
         <Card title="Spending by category">

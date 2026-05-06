@@ -92,23 +92,121 @@ export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
 
 // ─── Account ────────────────────────────────────────────────────────────
 
-export const accountInputSchema = z.object({
+// Base shape — kept separate from the input schema so we can build a
+// patch schema (omits type, since type is locked after creation) without
+// going through ZodEffects (which has no .partial / .omit).
+export const accountBaseSchema = z.object({
   name: z.string().min(1).max(100),
   type: accountTypeSchema,
+  // For most account types this is signed (negative = overdrawn). For
+  // type='credit_card' it stores amount currently owed as a positive number
+  // so the statement-payment math stays in plain positive arithmetic.
   currentBalanceCents: cents,
   isActive: z.boolean().default(true),
   // Reserved accounts (e.g. goal-earmarked savings) are kept out of the
   // dashboard's "available" total and the projected line, but still appear on
   // the Accounts page and in the forecast as a faint secondary line.
   excludeFromForecast: z.boolean().default(false),
+  // ─── Credit-card statement fields ──────────────────────────────────
+  // All three are required when type='credit_card' (validated below) and
+  // must be null for any other account type.
+  statementBalanceCents: cents.nonnegative().nullable().optional(),
+  statementDueDay: z.number().int().min(1).max(31).nullable().optional(),
+  statementPaidFromAccountId: z.string().uuid().nullable().optional(),
 })
+
+// Cross-field constraints. Used by both the input (full) and patch (partial)
+// schemas. For the patch schema, `type` is always undefined, so the CC-
+// required checks only fire when the caller explicitly sends statement
+// fields — otherwise the existing values stay untouched.
+function checkAccountInvariants(
+  data: Partial<z.infer<typeof accountBaseSchema>>,
+  ctx: z.RefinementCtx,
+) {
+  const isCC = data.type === 'credit_card'
+
+  if (isCC) {
+    // Convention: amount-owed must be non-negative for CCs.
+    if (
+      data.currentBalanceCents !== undefined &&
+      data.currentBalanceCents < 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['currentBalanceCents'],
+        message: 'Amount owed must be ≥ 0',
+      })
+    }
+    if (data.statementBalanceCents == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementBalanceCents'],
+        message: 'Required for credit-card accounts',
+      })
+    }
+    if (data.statementDueDay == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementDueDay'],
+        message: 'Required for credit-card accounts',
+      })
+    }
+    if (!data.statementPaidFromAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementPaidFromAccountId'],
+        message: 'Required for credit-card accounts',
+      })
+    }
+  } else if (data.type !== undefined) {
+    // Non-CC: statement fields must be unset.
+    if (data.statementBalanceCents != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementBalanceCents'],
+        message: 'Only valid for credit-card accounts',
+      })
+    }
+    if (data.statementDueDay != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementDueDay'],
+        message: 'Only valid for credit-card accounts',
+      })
+    }
+    if (data.statementPaidFromAccountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['statementPaidFromAccountId'],
+        message: 'Only valid for credit-card accounts',
+      })
+    }
+  }
+}
+
+export const accountInputSchema = accountBaseSchema.superRefine(
+  checkAccountInvariants,
+)
 export type AccountInput = z.infer<typeof accountInputSchema>
 
-export const accountSchema = accountInputSchema.extend({
+// PATCH variant: every field optional AND `type` removed entirely. Account
+// type is locked after creation; the server also drops `type` from any
+// incoming patch as a defense-in-depth measure.
+export const accountPatchSchema = accountBaseSchema
+  .omit({ type: true })
+  .partial()
+  .superRefine(checkAccountInvariants)
+export type AccountPatch = z.infer<typeof accountPatchSchema>
+
+export const accountSchema = accountBaseSchema.extend({
   id: z.string().uuid(),
   userId: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  // Row-level: these are nullable in the DB and arrive as null when unset.
+  statementBalanceCents: cents.nullable(),
+  statementDueDay: z.number().int().nullable(),
+  statementPaidFromAccountId: z.string().uuid().nullable(),
 })
 export type Account = z.infer<typeof accountSchema>
 
@@ -484,14 +582,30 @@ export const forecastEventSchema = z.object({
 })
 export type ForecastEvent = z.infer<typeof forecastEventSchema>
 
-// A goal contribution diverted from one of the day's income events.
+// A goal contribution diverted from one of the day's income events. Target
+// account info is included so the tooltip can roll multiple contributions
+// hitting the same savings account into a single per-account total.
 export const forecastGoalContributionSchema = z.object({
   goalId: z.string().uuid(),
   goalName: z.string(),
+  targetAccountId: z.string().uuid(),
+  targetAccountName: z.string(),
   cents: positiveCents,
 })
 export type ForecastGoalContribution = z.infer<
   typeof forecastGoalContributionSchema
+>
+
+// A credit-card statement payment hitting a paying account on its due day.
+export const forecastCreditCardPaymentSchema = z.object({
+  creditCardAccountId: z.string().uuid(),
+  creditCardName: z.string(),
+  paidFromAccountId: z.string().uuid(),
+  paidFromName: z.string(),
+  cents: positiveCents,
+})
+export type ForecastCreditCardPayment = z.infer<
+  typeof forecastCreditCardPaymentSchema
 >
 
 export const forecastPointSchema = z.object({
@@ -502,14 +616,19 @@ export const forecastPointSchema = z.object({
   // Sum of accounts that ARE marked excludeFromForecast (goal-earmarked
   // savings, etc.). Renders as a faint secondary line.
   reservedBalanceCents: cents,
+  // Sum of credit-card account balances on this day (positive = amount owed).
+  // Kept separate from available/reserved since CC debt only impacts spendable
+  // cash on statement-due days, not continuously.
+  creditCardDebtCents: cents,
   byAccount: z.record(z.string().uuid(), cents),
   scheduledIncomeCents: cents,
   scheduledExpensesCents: cents,
   goalContributionsCents: cents,
   // Items that fired on this day, plus any goal contributions diverted from
-  // them. Both are empty for the today/end bookend points.
+  // them. All three are empty for the today/end bookend points.
   events: z.array(forecastEventSchema),
   goalContributions: z.array(forecastGoalContributionSchema),
+  creditCardPayments: z.array(forecastCreditCardPaymentSchema),
   // True when the available total dipped negative on this day.
   isNegative: z.boolean(),
 })
@@ -553,6 +672,14 @@ export const forecastResponseSchema = z.object({
       firstDate: isoDate.optional(),
       accountId: z.string().uuid().optional(),
       goalId: z.string().uuid().optional(),
+      // For negative_balance: the event that flipped the account from
+      // non-negative to negative on `firstDate`. Helps the user pinpoint
+      // which transaction to adjust without scrubbing the chart.
+      triggeringEventName: z.string().optional(),
+      triggeringEventAmountCents: positiveCents.optional(),
+      triggeringEventKind: z
+        .enum(['expense', 'cc_payment', 'goal_contribution'])
+        .optional(),
     }),
   ),
 })

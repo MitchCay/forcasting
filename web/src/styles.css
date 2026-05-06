@@ -391,6 +391,63 @@ button.link:hover {
   margin-bottom: 0.75rem;
   flex-wrap: wrap;
 }
+.forecast-chart-header__actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ─── Modal ──────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1rem;
+  z-index: 100;
+  overflow-y: auto;
+}
+.modal-card {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  font-weight: 400;
+}
+.modal-close:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.modal-body {
+  padding: 1rem 1.1rem 1.1rem;
+}
 
 .horizon-selector {
   display: inline-flex;
@@ -452,6 +509,17 @@ button.link:hover {
 .forecast-tooltip__row.muted {
   color: var(--muted);
   font-size: 0.8rem;
+}
+.forecast-tooltip__row--strong {
+  font-weight: 600;
+}
+.forecast-tooltip__row--nested {
+  padding-left: 1rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.forecast-tooltip__group {
+  margin-bottom: 0.25rem;
 }
 .forecast-tooltip__amount {
   font-variant-numeric: tabular-nums;
@@ -594,6 +662,15 @@ button.link:hover {
   margin-top: 0.4rem;
   font-variant-numeric: tabular-nums;
 }
+.goal-status__contribution {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+.goal-status__contribution em {
+  font-style: normal;
+  color: var(--text);
+}
 .goal-status__badge {
   font-size: 0.75rem;
   font-weight: 600;
@@ -696,6 +773,16 @@ button.link:hover {
 }
 .progress__bar.complete {
   background: var(--positive);
+}
+.progress__marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.55;
+  transform: translateX(-1px);
+  pointer-events: none;
 }
 
 /* ─── Cards ──────────────────────────────────────────────────────────── */

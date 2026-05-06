@@ -27,10 +27,27 @@ export function AccountList() {
 
 function AccountCard({ account }: { account: Account }) {
   const [open, setOpen] = useState(false)
+  const { data: accounts } = useAccounts()
   const del = useDeleteAccount()
 
-  const balance = formatUSD(account.currentBalanceCents)
-  const isNegative = account.currentBalanceCents < 0
+  const isCC = account.type === 'credit_card'
+  // For CCs the balance IS the amount owed (positive convention). Render in
+  // the "negative" color since debt visually maps that way for the user.
+  const balanceClass = isCC
+    ? account.currentBalanceCents > 0
+      ? 'negative'
+      : 'positive'
+    : account.currentBalanceCents < 0
+    ? 'negative'
+    : 'positive'
+  const balanceLabel = isCC
+    ? `−${formatUSD(account.currentBalanceCents)}`
+    : formatUSD(account.currentBalanceCents)
+
+  const paidFromName = account.statementPaidFromAccountId
+    ? (accounts ?? []).find((a) => a.id === account.statementPaidFromAccountId)
+        ?.name
+    : undefined
 
   const handleDelete = () => {
     if (
@@ -48,13 +65,20 @@ function AccountCard({ account }: { account: Account }) {
         <span>
           {account.name}{' '}
           <span className="muted">· {accountTypeLabels[account.type]}</span>
+          {isCC &&
+            account.statementBalanceCents != null &&
+            account.statementDueDay != null && (
+              <span className="muted" style={{ display: 'block', fontSize: '.85rem', marginTop: '0.15rem' }}>
+                {formatUSD(account.statementBalanceCents)} due day{' '}
+                {account.statementDueDay}
+                {paidFromName ? ` · from ${paidFromName}` : ''}
+              </span>
+            )}
         </span>
       }
       actions={
         <>
-          <span className={`amount ${isNegative ? 'negative' : 'positive'}`}>
-            {balance}
-          </span>
+          <span className={`amount ${balanceClass}`}>{balanceLabel}</span>
           <button
             type="button"
             className="secondary"
