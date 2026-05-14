@@ -12,6 +12,7 @@ import {
   getUser,
   type AuthVars,
 } from '../middleware/require-auth'
+import { syncUser } from '../sync'
 
 const route = new Hono<{ Variables: AuthVars }>()
 
@@ -34,6 +35,7 @@ async function userOwnsAccount(userId: string, accountId: string) {
 
 route.get('/', async (c) => {
   const { id: userId } = getUser(c)
+  await syncUser(userId)
   // Subquery: ids of accounts the user owns. Drizzle's select returns the
   // raw ids which we then use in a WHERE IN.
   const owned = await db

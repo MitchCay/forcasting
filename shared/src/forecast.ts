@@ -17,13 +17,13 @@ import {
 // of months that don't have the requested day-of-month (e.g. Feb on a card
 // whose due day is 31).
 
-function dueDateInMonth(year: number, month: number, dueDay: number): string {
+export function dueDateInMonth(year: number, month: number, dueDay: number): string {
   const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
   const day = Math.min(dueDay, last)
   return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10)
 }
 
-function firstDueOnOrAfter(fromISO: string, dueDay: number): string {
+export function firstDueOnOrAfter(fromISO: string, dueDay: number): string {
   const from = new Date(`${fromISO}T00:00:00Z`)
   let year = from.getUTCFullYear()
   let month = from.getUTCMonth()
@@ -39,7 +39,7 @@ function firstDueOnOrAfter(fromISO: string, dueDay: number): string {
   return candidate
 }
 
-function nextDueAfter(currentISO: string, dueDay: number): string {
+export function nextDueAfter(currentISO: string, dueDay: number): string {
   const cur = new Date(`${currentISO}T00:00:00Z`)
   let year = cur.getUTCFullYear()
   let month = cur.getUTCMonth() + 1

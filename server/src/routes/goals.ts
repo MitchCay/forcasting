@@ -13,6 +13,7 @@ import {
   getUser,
   type AuthVars,
 } from '../middleware/require-auth'
+import { syncUser } from '../sync'
 
 const route = new Hono<{ Variables: AuthVars }>()
 
@@ -48,6 +49,7 @@ async function loadOwnedIncomeItem(userId: string, itemId: string) {
 
 route.get('/', async (c) => {
   const { id: userId } = getUser(c)
+  await syncUser(userId)
   const rows = await db
     .select()
     .from(goals)

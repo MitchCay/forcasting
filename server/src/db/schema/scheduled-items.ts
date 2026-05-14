@@ -1,6 +1,7 @@
 import {
   pgTable, uuid, timestamp, integer, text, date, boolean, index,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { accounts } from './accounts'
 import { frequencyEnum } from './enums'
 
@@ -24,6 +25,12 @@ export const scheduledItems = pgTable(
     isIncome: boolean('is_income').notNull().default(false),
     category: text('category'),
     notes: text('notes'),
+    // The last date through which this item's occurrences have been applied
+    // to account balances + goal savedCents. Defaults to CURRENT_DATE so
+    // existing rows + freshly-created items don't back-fill historical
+    // occurrences on the first sync. Sync advances this to "yesterday" so
+    // the forecast engine handles today's events as projections.
+    lastAppliedDate: date('last_applied_date').default(sql`CURRENT_DATE`),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },

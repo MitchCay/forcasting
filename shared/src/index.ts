@@ -207,6 +207,8 @@ export const accountSchema = accountBaseSchema.extend({
   statementBalanceCents: cents.nullable(),
   statementDueDay: z.number().int().nullable(),
   statementPaidFromAccountId: z.string().uuid().nullable(),
+  // Set by the catchup sync; null only for never-synced rows.
+  lastStatementAppliedDate: isoDate.nullable(),
 })
 export type Account = z.infer<typeof accountSchema>
 
@@ -272,6 +274,8 @@ export const scheduledItemSchema = z.object({
   isIncome: z.boolean(),
   category: z.string().nullable(),
   notes: z.string().nullable(),
+  // Set by the catchup sync; null only for never-synced rows.
+  lastAppliedDate: isoDate.nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

@@ -13,6 +13,7 @@ import {
   getUser,
   type AuthVars,
 } from '../middleware/require-auth'
+import { syncUser } from '../sync'
 
 // Verifies that `paidFromId` belongs to the user and is not itself a credit
 // card (and not the same account, when editing). Returns null on success or
@@ -45,6 +46,9 @@ route.use('*', requireAuth)
 
 route.get('/', async (c) => {
   const { id: userId } = getUser(c)
+  // Apply any past scheduled events that haven't been materialized yet so
+  // the returned balances reflect "now" rather than the last edit.
+  await syncUser(userId)
   const rows = await db
     .select()
     .from(accounts)

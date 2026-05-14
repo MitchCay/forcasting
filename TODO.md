@@ -2,6 +2,20 @@
 
 Things deferred — captured here so we don't lose them.
 
+## Sync safety: advance last_applied on manual balance edits
+
+When the user manually updates an account balance (via the account form) or
+records a balance snapshot, the catchup sync (server/src/sync.ts) doesn't
+know that those numbers ARE the post-event truth — it'll still apply any
+pending scheduled-item occurrences against the affected account on the next
+read, which can double-count. Fix: on PATCH /accounts/:id (or snapshot
+POST), advance `last_applied_date` on every scheduled item whose
+`account_id` or whose-goal-targets the affected account, to today (or the
+snapshot date). Similarly bump `last_statement_applied_date` for any CC
+whose `paid_from_account_id` matches. Until this lands, the typical
+"open dashboard daily, then occasionally edit balances" pattern works
+fine — the edge case is editing right after a pending past occurrence.
+
 ## Paycheck splitter UX
 
 A single form that lets you say "$5000 paycheck → $3000 Checking, $1500
@@ -88,7 +102,7 @@ update a balance snapshot.
 Currently the forecast is a single deterministic line. Could compute a band
 based on historical variance of expense categories. Skip until basics work.
 
-## Notes Feeature
+## Notes Feature
 
 A place to save notes, reminders and "offline" TODO items. Useful for saving general
 notes on finances, able to schedule reminders for the user to look back at on
@@ -96,3 +110,5 @@ future and adding potential new app ideas to the running TODO.md. On TODO functi
 Admin user (myself) able to write directly to TODO.md while other users can add items
 that could be saved to a "feature request" document. Will have use for the deployed
 version of the app so can pick up on tasks when back in development environment.
+
+## Correct conversion type issue in forcast.ts

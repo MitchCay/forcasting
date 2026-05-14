@@ -17,6 +17,7 @@ import {
   getUser,
   type AuthVars,
 } from '../middleware/require-auth'
+import { syncUser } from '../sync'
 
 const route = new Hono<{ Variables: AuthVars }>()
 
@@ -30,6 +31,9 @@ const querySchema = z.object({
 route.get('/', zValidator('query', querySchema), async (c) => {
   const { id: userId } = getUser(c)
   const { horizon } = c.req.valid('query')
+
+  // Apply any pending past events to the user's data before projecting.
+  await syncUser(userId)
 
   // ── Load the user's data ─────────────────────────────────────────
   // Three queries in parallel; they don't depend on each other and the DB

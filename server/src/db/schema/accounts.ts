@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, timestamp, integer, boolean, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import { pgTable, text, uuid, timestamp, integer, boolean, date, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { accountTypeEnum } from './enums'
 import { user } from './auth'
 
@@ -28,6 +29,12 @@ export const accounts = pgTable('accounts', {
   statementPaidFromAccountId: uuid('statement_paid_from_account_id').references(
     (): AnyPgColumn => accounts.id,
     { onDelete: 'set null' },
+  ),
+  // The last date through which we've auto-applied this card's statement
+  // payments to its balance + the paying account. Defaults to CURRENT_DATE
+  // so existing CC rows don't back-fill on first sync.
+  lastStatementAppliedDate: date('last_statement_applied_date').default(
+    sql`CURRENT_DATE`,
   ),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
