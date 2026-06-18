@@ -18,6 +18,7 @@ import { Dashboard } from './features/forecast/Dashboard'
 import { AccountsPage } from './features/accounts/AccountsPage'
 import { ScheduledPage } from './features/scheduled/ScheduledPage'
 import { GoalsPage } from './features/goals/GoalsPage'
+import { NotesPage } from './features/notes/NotesPage'
 import { AccountPage } from './features/account/AccountPage'
 import './styles.css'
 
@@ -94,6 +95,11 @@ const goalsRoute = createRoute({
   path: '/goals',
   component: GoalsPage,
 })
+const notesRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: '/notes',
+  component: NotesPage,
+})
 const accountRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/account',
@@ -108,6 +114,7 @@ const routeTree = rootRoute.addChildren([
     accountsRoute,
     scheduledRoute,
     goalsRoute,
+    notesRoute,
     accountRoute,
   ]),
 ])
@@ -135,6 +142,7 @@ function AppShell() {
           <Link to="/accounts" activeProps={{ className: 'active' }}>Accounts</Link>
           <Link to="/scheduled" activeProps={{ className: 'active' }}>Scheduled</Link>
           <Link to="/goals" activeProps={{ className: 'active' }}>Goals</Link>
+          <Link to="/notes" activeProps={{ className: 'active' }}>Notes</Link>
         </nav>
         <div className="header__user">
           <UserMenu />

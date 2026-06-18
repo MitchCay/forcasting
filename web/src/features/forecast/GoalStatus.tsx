@@ -6,7 +6,7 @@ import {
   type Goal,
   type ScheduledItem,
 } from "shared";
-import { useGoals } from "../goals/queries";
+import { useGoals, useUpdateGoal } from "../goals/queries";
 import { useScheduledItems } from "../scheduled/queries";
 
 // Compact one-row-per-goal panel showing on-track status, projected saved,
@@ -92,12 +92,21 @@ function GoalRow({
     (projection?.projectedSavedCents ?? saved) >= goal.targetCents;
   const completionDate = projection?.estimatedCompletionDate;
 
-  // Badge states: reached now / on track / will-arrive-late / behind / unfunded.
+  const update = useUpdateGoal();
+  const handleTogglePause = () => {
+    update.mutate({ id: goal.id, paused: !goal.paused });
+  };
+
+  // Badge states: reached now / paused / on track / will-arrive-late /
+  // behind / unfunded. Paused takes precedence over trajectory states.
   let statusLabel: string;
   let statusClass: string;
   if (isReached) {
     statusLabel = "Reached";
     statusClass = "goal-status__badge goal-status__badge--ok";
+  } else if (goal.paused) {
+    statusLabel = "Paused";
+    statusClass = "goal-status__badge goal-status__badge--muted";
   } else if (onTrack) {
     statusLabel = "On track";
     statusClass = "goal-status__badge goal-status__badge--ok";
@@ -121,7 +130,22 @@ function GoalRow({
     <li className="goal-status__row">
       <div className="goal-status__head">
         <span className="goal-status__name">{goal.name}</span>
-        <span className={statusClass}>{statusLabel}</span>
+        <div className="goal-status__head-right">
+          <span className={statusClass}>{statusLabel}</span>
+          {!isReached && (
+            <button
+              type="button"
+              className="goal-status__pause"
+              onClick={handleTogglePause}
+              disabled={update.isPending}
+              title={
+                goal.paused ? "Resume contributions" : "Pause contributions"
+              }
+            >
+              {goal.paused ? "Resume" : "Pause"}
+            </button>
+          )}
+        </div>
       </div>
       <div
         className="progress"

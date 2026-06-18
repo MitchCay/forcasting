@@ -303,7 +303,13 @@ export const goalBaseSchema = z.object({
   name: z.string().min(1).max(100),
   targetCents: positiveCents,
   savedCents: cents.nonnegative().default(0),
+  // Optional contribution-start date. When omitted/null, contributions
+  // start today. When in the future, the engine + sync skip occurrences
+  // before this date.
+  startDate: isoDate.nullable().optional(),
   targetDate: isoDate,
+  // Pause future contributions while preserving savedCents.
+  paused: z.boolean().default(false),
   targetAccountId: z.string().uuid(),
   // Optional — when set, the server locks in a per-occurrence contribution
   // amount derived from this scheduled income's frequency. The forecast
@@ -340,7 +346,9 @@ export const goalSchema = z.object({
   name: z.string(),
   targetCents: z.number().int(),
   savedCents: z.number().int(),
+  startDate: isoDate.nullable(),
   targetDate: isoDate,
+  paused: z.boolean(),
   targetAccountId: z.string().uuid(),
   fundedByScheduledItemId: z.string().uuid().nullable(),
   // Server-managed: locked in on create/edit. Null when no funding item.
@@ -540,12 +548,18 @@ export function nextOccurrenceOnOrAfter(
 // funding item, 0 when the goal is already met, or the full remaining
 // balance when no occurrences fall within the window (compressed funding —
 // goal gets fully paid on the next occurrence after target_date).
+//
+// `goalStartDate` shifts the contribution-window start forward when the
+// user has deferred a goal ("I'll start saving in a month"). The effective
+// start is max(today, goalStartDate).
 export function computeContributionPerOccurrence(input: {
   targetCents: number
   savedCents: number
   targetDate: string
   /** ISO date the contribution is being computed on. Defaults to today. */
   todayISO?: string
+  /** Optional contribution-start date; null = "starts today". */
+  goalStartDate?: string | null
   fundingItem: {
     frequency: Frequency
     startDate: string
@@ -555,9 +569,13 @@ export function computeContributionPerOccurrence(input: {
   const remaining = input.targetCents - input.savedCents
   if (remaining <= 0) return 0
   const today = input.todayISO ?? isoDateOf(new Date())
+  const effectiveStart =
+    input.goalStartDate && input.goalStartDate > today
+      ? input.goalStartDate
+      : today
   const occurrences = countOccurrencesBetween(
     input.fundingItem,
-    today,
+    effectiveStart,
     input.targetDate,
   )
   if (occurrences <= 0) return remaining
@@ -688,6 +706,69 @@ export const forecastResponseSchema = z.object({
   ),
 })
 export type ForecastResponse = z.infer<typeof forecastResponseSchema>
+
+// ─── Notes (free-form user content; does NOT affect the forecast) ───────
+//
+// Notes are a generic container. Today the only type is `ledger` — a two-
+// column name/amount table the user keeps as a side log (e.g. "weekly spend
+// review" with their partner). Future types just add a new variant in the
+// discriminated union below; the server stores all variants in the same
+// `notes` table with a JSONB `content` column.
+
+export const noteTypes = ['ledger'] as const
+export const noteTypeSchema = z.enum(noteTypes)
+export type NoteType = z.infer<typeof noteTypeSchema>
+
+export const noteTypeLabels: Record<NoteType, string> = {
+  ledger: 'Ledger',
+}
+
+// ── Ledger content ──────────────────────────────────────────────────────
+
+export const ledgerEntrySchema = z.object({
+  id: z.string(),
+  name: z.string().max(200),
+  // Optional free-form bucket label. Powers the per-ledger spending-by-
+  // category donut in the stats panel. Null/empty = "Uncategorized".
+  category: z.string().max(50).nullable().optional(),
+  amountCents: z.number().int(),
+})
+export type LedgerEntry = z.infer<typeof ledgerEntrySchema>
+
+export const ledgerContentSchema = z.object({
+  entries: z.array(ledgerEntrySchema),
+})
+export type LedgerContent = z.infer<typeof ledgerContentSchema>
+
+// ── Note input + row schemas ────────────────────────────────────────────
+
+const noteTitleSchema = z.string().max(200).default('')
+
+// Input is a discriminated union by `type`. Each variant carries its own
+// validated content shape — easy to extend later by appending another
+// `z.object({ type: z.literal('checklist'), content: checklistContentSchema })`.
+export const noteInputSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('ledger'),
+    title: noteTitleSchema,
+    content: ledgerContentSchema,
+  }),
+])
+export type NoteInput = z.infer<typeof noteInputSchema>
+
+// Row schema. `content` is type-tagged so consumers can narrow on `type`.
+export const noteSchema = z.discriminatedUnion('type', [
+  z.object({
+    id: z.string().uuid(),
+    userId: z.string(),
+    type: z.literal('ledger'),
+    title: z.string(),
+    content: ledgerContentSchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+])
+export type Note = z.infer<typeof noteSchema>
 
 // ─── Forecast engine ────────────────────────────────────────────────────
 

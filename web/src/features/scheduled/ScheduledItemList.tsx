@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   formatUSD,
   frequencyLabels,
+  todayISO,
   type Account,
   type ScheduledItem,
 } from 'shared'
@@ -12,6 +13,13 @@ import {
   useScheduledItems,
 } from './queries'
 import { ScheduledItemForm } from './ScheduledItemForm'
+
+// An item is "past" if it's a one-time entry whose date has passed, OR a
+// recurring item whose end date has passed. Active items everywhere else.
+function isPast(item: ScheduledItem, today: string): boolean {
+  if (item.frequency === 'one_time') return item.startDate < today
+  return !!item.endDate && item.endDate < today
+}
 
 export function ScheduledItemList() {
   const { data: items, isLoading, error } = useScheduledItems()
@@ -31,34 +39,44 @@ export function ScheduledItemList() {
     return <p className="muted">No scheduled items yet.</p>
   }
 
-  // Group by income vs expense for at-a-glance scanning. Within each group
-  // we keep the server's order (start date asc, then name).
-  const income = items.filter((i) => i.isIncome)
-  const expenses = items.filter((i) => !i.isIncome)
+  const today = todayISO()
+  const active = items.filter((i) => !isPast(i, today))
+  const past = items.filter((i) => isPast(i, today))
+
+  const renderRow = (it: ScheduledItem) => (
+    <ScheduledItemRow
+      key={it.id}
+      item={it}
+      accountName={accountById.get(it.accountId)?.name}
+    />
+  )
+
+  // Group active items by income vs expense; past items collapse into a
+  // closed-by-default <details> at the bottom of the page.
+  const income = active.filter((i) => i.isIncome)
+  const expenses = active.filter((i) => !i.isIncome)
 
   return (
     <div>
       {income.length > 0 && (
-        <Section title="Income">
-          {income.map((it) => (
-            <ScheduledItemRow
-              key={it.id}
-              item={it}
-              accountName={accountById.get(it.accountId)?.name}
-            />
-          ))}
-        </Section>
+        <Section title="Income">{income.map(renderRow)}</Section>
       )}
       {expenses.length > 0 && (
-        <Section title="Expenses">
-          {expenses.map((it) => (
-            <ScheduledItemRow
-              key={it.id}
-              item={it}
-              accountName={accountById.get(it.accountId)?.name}
-            />
-          ))}
-        </Section>
+        <Section title="Expenses">{expenses.map(renderRow)}</Section>
+      )}
+      {active.length === 0 && (
+        <p className="muted">No active scheduled items.</p>
+      )}
+      {past.length > 0 && (
+        <details className="archived-section">
+          <summary>
+            Past items{' '}
+            <span className="muted">
+              ({past.length})
+            </span>
+          </summary>
+          <div className="archived-section__body">{past.map(renderRow)}</div>
+        </details>
       )}
     </div>
   )

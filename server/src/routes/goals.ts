@@ -82,6 +82,7 @@ route.post('/', zValidator('json', goalInputSchema), async (c) => {
       targetCents: data.targetCents,
       savedCents: data.savedCents ?? 0,
       targetDate: data.targetDate,
+      goalStartDate: data.startDate ?? null,
       fundingItem: {
         frequency: item.frequency,
         startDate: item.startDate,
@@ -137,13 +138,14 @@ route.patch('/:id', zValidator('json', goalPatchSchema), async (c) => {
   }
 
   // Recompute the locked-in contribution whenever any field that affects the
-  // math is part of the patch (target_cents, saved_cents, target_date,
-  // funded_by_scheduled_item_id). Anything else (e.g. renaming the goal)
-  // leaves the existing contribution untouched.
+  // math is part of the patch. Anything else (renaming, pause toggle) leaves
+  // the existing contribution untouched — pause/resume should NOT recompute
+  // to catch up time lost; that matches the principle we set elsewhere.
   const mathFieldChanged =
     data.targetCents !== undefined ||
     data.savedCents !== undefined ||
     data.targetDate !== undefined ||
+    data.startDate !== undefined ||
     data.fundedByScheduledItemId !== undefined
 
   let contributionPerOccurrenceCents = existing.contributionPerOccurrenceCents
@@ -167,6 +169,8 @@ route.patch('/:id', zValidator('json', goalPatchSchema), async (c) => {
         targetCents: data.targetCents ?? existing.targetCents,
         savedCents: data.savedCents ?? existing.savedCents,
         targetDate: data.targetDate ?? existing.targetDate,
+        goalStartDate:
+          data.startDate !== undefined ? data.startDate : existing.startDate,
         fundingItem: {
           frequency: item.frequency,
           startDate: item.startDate,

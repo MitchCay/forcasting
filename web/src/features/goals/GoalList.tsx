@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   formatUSD,
   frequencyLabels,
+  todayISO,
   type Account,
   type Goal,
   type ScheduledItem,
@@ -9,7 +10,7 @@ import {
 import { Card } from '../../components/Card'
 import { useAccounts } from '../accounts/queries'
 import { useScheduledItems } from '../scheduled/queries'
-import { useDeleteGoal, useGoals } from './queries'
+import { useDeleteGoal, useGoals, useUpdateGoal } from './queries'
 import { GoalForm } from './GoalForm'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -56,20 +57,40 @@ export function GoalList() {
     return <p className="muted">No goals yet.</p>
   }
 
+  const today = todayISO()
+  // "Past" = target date is in the past. Reached or not, it's no longer in
+  // active rotation; user can still review/edit from the collapsible.
+  const active = goals.filter((g) => g.targetDate >= today)
+  const past = goals.filter((g) => g.targetDate < today)
+
+  const renderRow = (g: Goal) => (
+    <GoalRow
+      key={g.id}
+      goal={g}
+      targetAccountName={accountById.get(g.targetAccountId)?.name}
+      fundingItem={
+        g.fundedByScheduledItemId
+          ? itemById.get(g.fundedByScheduledItemId)
+          : undefined
+      }
+    />
+  )
+
   return (
     <div>
-      {goals.map((g) => (
-        <GoalRow
-          key={g.id}
-          goal={g}
-          targetAccountName={accountById.get(g.targetAccountId)?.name}
-          fundingItem={
-            g.fundedByScheduledItemId
-              ? itemById.get(g.fundedByScheduledItemId)
-              : undefined
-          }
-        />
-      ))}
+      {active.length > 0 ? (
+        active.map(renderRow)
+      ) : (
+        <p className="muted">No active goals.</p>
+      )}
+      {past.length > 0 && (
+        <details className="archived-section">
+          <summary>
+            Past goals <span className="muted">({past.length})</span>
+          </summary>
+          <div className="archived-section__body">{past.map(renderRow)}</div>
+        </details>
+      )}
     </div>
   )
 }
@@ -85,6 +106,7 @@ function GoalRow({
 }) {
   const [editing, setEditing] = useState(false)
   const del = useDeleteGoal()
+  const update = useUpdateGoal()
 
   const progress =
     goal.targetCents > 0
@@ -97,6 +119,10 @@ function GoalRow({
     if (confirm(`Delete "${goal.name}"?`)) {
       del.mutate(goal.id)
     }
+  }
+
+  const handleTogglePause = () => {
+    update.mutate({ id: goal.id, paused: !goal.paused })
   }
 
   return (
@@ -113,6 +139,20 @@ function GoalRow({
       actions={
         <>
           <span className="amount">{percent}%</span>
+          {goal.paused && (
+            <span className="goal-status__badge goal-status__badge--muted">
+              Paused
+            </span>
+          )}
+          <button
+            type="button"
+            className="secondary"
+            onClick={handleTogglePause}
+            disabled={update.isPending || isComplete}
+            title={goal.paused ? 'Resume contributions' : 'Pause contributions'}
+          >
+            {goal.paused ? 'Resume' : 'Pause'}
+          </button>
           <button
             type="button"
             className="secondary"

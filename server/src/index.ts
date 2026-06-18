@@ -6,6 +6,7 @@ import { accountsRoute } from './routes/accounts'
 import { scheduledRoute } from './routes/scheduled'
 import { goalsRoute } from './routes/goals'
 import { forecastRoute } from './routes/forecast'
+import { notesRoute } from './routes/notes'
 
 const app = new Hono()
 
@@ -31,6 +32,7 @@ app.route('/api/accounts', accountsRoute)
 app.route('/api/scheduled', scheduledRoute)
 app.route('/api/goals', goalsRoute)
 app.route('/api/forecast', forecastRoute)
+app.route('/api/notes', notesRoute)
 // app.route('/api/import', importRoute)         // Phase 7
 
 const port = Number(process.env.PORT ?? 3000)

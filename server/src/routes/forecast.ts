@@ -2,14 +2,7 @@ import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
-import {
-  forecastHorizonSchema,
-  runForecast,
-  todayISO,
-  type Account,
-  type Goal,
-  type ScheduledItem,
-} from 'shared'
+import { forecastHorizonSchema, runForecast, todayISO } from 'shared'
 import { db } from '../db/client'
 import { accounts, goals, scheduledItems } from '../db/schema'
 import {
@@ -36,34 +29,34 @@ route.get('/', zValidator('query', querySchema), async (c) => {
   await syncUser(userId)
 
   // ── Load the user's data ─────────────────────────────────────────
-  // Three queries in parallel; they don't depend on each other and the DB
-  // round-trips dominate. Scheduled items are filtered by the user's owned
-  // accounts (via inArray).
-  const [accountRows, scheduledRows, goalRows] = await Promise.all([
-    db.select().from(accounts).where(eq(accounts.userId, userId)),
-    db
-      .select()
-      .from(accounts)
-      .where(eq(accounts.userId, userId))
-      .then(async (owned) => {
-        if (owned.length === 0) return [] as ScheduledItem[]
-        const ids = owned.map((a) => a.id)
-        return db
-          .select()
-          .from(scheduledItems)
-          .where(inArray(scheduledItems.accountId, ids)) as Promise<
-          ScheduledItem[]
-        >
-      }),
-    db.select().from(goals).where(eq(goals.userId, userId)),
-  ])
+  // The user's accounts feed both the engine and the scheduled-items
+  // filter. We load them once and reuse.
+  const accountRows = await db
+    .select()
+    .from(accounts)
+    .where(eq(accounts.userId, userId))
 
+  const accountIds = accountRows.map((a) => a.id)
+  const [scheduledRows, goalRows] =
+    accountIds.length === 0
+      ? [[], await db.select().from(goals).where(eq(goals.userId, userId))]
+      : await Promise.all([
+          db
+            .select()
+            .from(scheduledItems)
+            .where(inArray(scheduledItems.accountId, accountIds)),
+          db.select().from(goals).where(eq(goals.userId, userId)),
+        ])
+
+  // The engine accepts structural input types that only declare the fields
+  // it actually reads — the Drizzle row shapes are assignable directly, no
+  // casting needed.
   const result = runForecast({
     todayISO: todayISO(),
     horizon,
-    accounts: accountRows as Account[],
+    accounts: accountRows,
     scheduledItems: scheduledRows,
-    goals: goalRows as Goal[],
+    goals: goalRows,
   })
 
   return c.json(result)

@@ -79,7 +79,10 @@ export function Dashboard() {
 
       {forecast && (
         <Card title="Spending by category">
-          <CategoryPieChart forecast={forecast} />
+          <CategoryPieChart
+            slices={forecast.categoryBreakdown}
+            emptyMessage="No expense events in the selected horizon yet."
+          />
         </Card>
       )}
 

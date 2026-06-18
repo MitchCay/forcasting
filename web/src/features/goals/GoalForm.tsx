@@ -38,6 +38,14 @@ const formSchema = z
         (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6,
         'Up to 2 decimal places',
       ),
+    // Optional — when blank, contributions start today. When in the future,
+    // the engine skips occurrences before this date.
+    startDate: z
+      .union([
+        z.literal(''),
+        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
+      ])
+      .optional(),
     targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD'),
     targetAccountId: z.string().uuid('Pick an account'),
     // Empty string when not set; the form layer maps to undefined/null at
@@ -53,6 +61,17 @@ const formSchema = z
         message: 'Saved cannot exceed target',
       })
     }
+    if (
+      data.startDate &&
+      data.startDate !== '' &&
+      data.startDate > data.targetDate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['startDate'],
+        message: 'Start date must be on or before target date',
+      })
+    }
   })
 type FormValues = z.infer<typeof formSchema>
 
@@ -61,6 +80,7 @@ function defaultsForCreate(): FormValues {
     name: '',
     targetDollars: 0,
     savedDollars: 0,
+    startDate: '',
     targetDate: todayISO(),
     targetAccountId: '',
     fundedByScheduledItemId: '',
@@ -72,6 +92,7 @@ function defaultsForEdit(goal: Goal): FormValues {
     name: goal.name,
     targetDollars: centsToDollars(goal.targetCents),
     savedDollars: centsToDollars(goal.savedCents),
+    startDate: goal.startDate ?? '',
     targetDate: goal.targetDate,
     targetAccountId: goal.targetAccountId,
     fundedByScheduledItemId: goal.fundedByScheduledItemId ?? '',
@@ -119,6 +140,7 @@ export function GoalForm({
       name: values.name,
       targetCents: dollarsToCents(values.targetDollars),
       savedCents: dollarsToCents(values.savedDollars),
+      startDate: values.startDate && values.startDate !== '' ? values.startDate : null,
       targetDate: values.targetDate,
       targetAccountId: values.targetAccountId,
       fundedByScheduledItemId: values.fundedByScheduledItemId || null,
@@ -143,6 +165,7 @@ export function GoalForm({
   const watchedFundingId = form.watch('fundedByScheduledItemId')
   const watchedTarget = form.watch('targetDollars')
   const watchedSaved = form.watch('savedDollars')
+  const watchedStartDate = form.watch('startDate')
   const watchedTargetDate = form.watch('targetDate')
 
   const fundingPreview = useMemo(() => {
@@ -161,15 +184,21 @@ export function GoalForm({
       return { itemName: item.name, status: 'met' as const }
     }
 
+    const goalStart =
+      watchedStartDate && watchedStartDate !== '' ? watchedStartDate : null
+    const today = todayISO()
+    const effectiveStart = goalStart && goalStart > today ? goalStart : today
+
     const occurrences = countOccurrencesBetween(
       { frequency: item.frequency, startDate: item.startDate, endDate: item.endDate },
-      todayISO(),
-      watchedTargetDate || todayISO(),
+      effectiveStart,
+      watchedTargetDate || today,
     )
     const perOccurrenceCents = computeContributionPerOccurrence({
       targetCents,
       savedCents,
-      targetDate: watchedTargetDate || todayISO(),
+      targetDate: watchedTargetDate || today,
+      goalStartDate: goalStart,
       fundingItem: {
         frequency: item.frequency,
         startDate: item.startDate,
@@ -185,12 +214,14 @@ export function GoalForm({
       perOccurrenceCents,
       occurrences,
       frequencyLabel: frequencyLabels[item.frequency],
+      deferred: goalStart && goalStart > today ? goalStart : null,
     }
   }, [
     watchedFundingId,
     incomeItems,
     watchedTarget,
     watchedSaved,
+    watchedStartDate,
     watchedTargetDate,
   ])
 
@@ -241,26 +272,33 @@ export function GoalForm({
 
       <div className="grid-2">
         <Field
+          label="Start date"
+          error={form.formState.errors.startDate?.message}
+          hint="Optional — leave blank to start saving immediately"
+        >
+          <input type="date" {...form.register('startDate')} />
+        </Field>
+        <Field
           label="Target date"
           error={form.formState.errors.targetDate?.message}
         >
           <input type="date" {...form.register('targetDate')} />
         </Field>
-        <Field
-          label="Target account"
-          error={form.formState.errors.targetAccountId?.message}
-          hint="Where the saved money will be held"
-        >
-          <select {...form.register('targetAccountId')}>
-            <option value="">Select…</option>
-            {accountOptions.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </Field>
       </div>
+      <Field
+        label="Target account"
+        error={form.formState.errors.targetAccountId?.message}
+        hint="Where the saved money will be held"
+      >
+        <select {...form.register('targetAccountId')}>
+          <option value="">Select…</option>
+          {accountOptions.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <Field
         label="Funded by"
@@ -289,7 +327,11 @@ export function GoalForm({
               </strong>{' '}
               per occurrence · {fundingPreview.occurrences} expected
               payment{fundingPreview.occurrences === 1 ? '' : 's'} of{' '}
-              <em>{fundingPreview.itemName}</em> before target date.
+              <em>{fundingPreview.itemName}</em>
+              {fundingPreview.deferred
+                ? ` starting ${fundingPreview.deferred}`
+                : ' before target date'}
+              .
             </span>
           )}
           {fundingPreview.status === 'compressed' && (

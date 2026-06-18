@@ -296,6 +296,43 @@ button.link:hover {
   background: transparent;
 }
 
+/* ─── Archived section (past items/goals collapsible) ───────────────── */
+
+.archived-section {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.archived-section > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.4rem 0.2rem;
+  user-select: none;
+  list-style: none;
+}
+.archived-section > summary::-webkit-details-marker {
+  display: none;
+}
+.archived-section > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 120ms ease;
+}
+.archived-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.archived-section > summary:hover {
+  color: var(--text);
+}
+.archived-section__body {
+  margin-top: 0.6rem;
+  opacity: 0.85;
+}
+
 /* ─── Chips ──────────────────────────────────────────────────────────── */
 
 .chip-row {
@@ -559,12 +596,32 @@ button.link:hover {
 
 .category-breakdown {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 1fr;
   gap: 1.25rem;
   align-items: center;
 }
+/* Horizontal: chart on the left, legend on the right. Default. */
+.category-breakdown--horizontal {
+  grid-template-columns: minmax(220px, 1fr) 1fr;
+}
+/* Vertical: chart on top, legend below. Used in narrow containers like
+   the ledger stats column. */
+.category-breakdown--vertical {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
 @media (max-width: 720px) {
-  .category-breakdown { grid-template-columns: 1fr; }
+  .category-breakdown--horizontal { grid-template-columns: 1fr; }
+}
+
+/* Recharts tooltip floats inside the chart subtree. The center "Total"
+   pseudo-label sits absolutely-positioned on top of the chart and would
+   otherwise occlude the tooltip when the cursor is centered. Lift the
+   tooltip wrapper above the center. */
+.category-breakdown__chart .recharts-tooltip-wrapper {
+  z-index: 10;
+}
+.category-breakdown__center {
+  z-index: 1;
 }
 .category-breakdown__chart {
   position: relative;
@@ -650,6 +707,25 @@ button.link:hover {
   align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
+}
+.goal-status__head-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.goal-status__pause {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.goal-status__pause:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .goal-status__name {
   font-weight: 600;
@@ -738,6 +814,315 @@ button.link:hover {
 .warning--stale_balance {
   border-color: rgba(110, 168, 255, 0.4);
   background: rgba(110, 168, 255, 0.08);
+}
+
+/* ─── Combobox ───────────────────────────────────────────────────────── */
+
+.combobox {
+  position: relative;
+  width: 100%;
+}
+.combobox__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+  padding: 0.4rem 0.55rem;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.combobox__trigger:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.combobox__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.combobox__placeholder {
+  color: var(--muted);
+}
+.combobox__chevron {
+  color: var(--muted);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.combobox__panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  z-index: 200;
+  min-width: 200px;
+  /* Flex column so the list flex-grows inside whatever maxHeight the
+     positioning sets — keeps the search input pinned and the option list
+     scrollable inside the available space. */
+  display: flex;
+  flex-direction: column;
+}
+.combobox__search {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0.55rem 0.7rem;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.combobox__search:focus {
+  outline: none;
+}
+.combobox__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0;
+  overflow-y: auto;
+  /* Take whatever vertical space the panel's maxHeight leaves after the
+     search input. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.combobox__item {
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.combobox__item.active {
+  background: var(--surface-2);
+}
+.combobox__create-value {
+  color: var(--accent);
+  font-weight: 600;
+}
+.combobox__empty {
+  padding: 0.6rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* ─── Ledger note ────────────────────────────────────────────────────── */
+
+.ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .ledger { grid-template-columns: 1fr; }
+}
+
+.ledger__title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0.25rem 0.4rem;
+  width: 100%;
+  max-width: 320px;
+}
+.ledger__title-input:focus {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.ledger__table-wrap {
+  overflow-x: auto;
+}
+
+.ledger__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.ledger__table th {
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.ledger__th-amount {
+  text-align: right;
+}
+.ledger__table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.ledger__table tr:last-child td {
+  border-bottom: none;
+}
+.ledger__table input {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  width: 100%;
+}
+.ledger__table input:focus {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.ledger__amount-wrap {
+  position: relative;
+}
+.ledger__sign-toggle {
+  position: absolute;
+  left: 0.15rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.05rem 0.35rem;
+  cursor: pointer;
+  z-index: 1;
+  /* Sign reflects the row's intent, so color it by the chosen sign even
+     when the amount is blank. */
+  color: var(--muted);
+}
+.ledger__sign-toggle.negative { color: var(--negative); }
+.ledger__sign-toggle.positive { color: var(--positive); }
+.ledger__sign-toggle:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.ledger__amount-input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  /* Leave room for the absolutely-positioned sign toggle on the left. */
+  padding-left: 1.65rem;
+}
+/* Live color while typing (these are <input> elements, so `.amount.X`
+   selectors don't apply — declare directly here). */
+.ledger__amount-input.positive { color: var(--positive); }
+.ledger__amount-input.negative { color: var(--negative); }
+.ledger__amount-cell {
+  text-align: right;
+  font-weight: 600;
+}
+.ledger__amount-cell.positive { color: var(--positive); }
+.ledger__amount-cell.negative { color: var(--negative); }
+.ledger__row-actions {
+  width: 28px;
+  text-align: center;
+}
+.ledger__remove {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 0 0.4rem;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.ledger__remove:hover:not(:disabled) {
+  color: var(--negative);
+  border-color: var(--negative);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.ledger__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+}
+@media (max-width: 720px) {
+  .ledger__stats {
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+  }
+}
+.ledger-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.ledger-stat__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.ledger-stat__value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ledger-stat__value.positive { color: var(--positive); }
+.ledger-stat__value.negative { color: var(--negative); }
+
+.ledger-categories {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+/* ── Title + collapse affordance ── */
+
+.ledger__title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.ledger__title-summary {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.ledger__title-summary .positive { color: var(--positive); }
+.ledger__title-summary .negative { color: var(--negative); }
+
+.ledger__collapse {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 0.25rem 0.4rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.ledger__collapse:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.ledger__chevron {
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.ledger__chevron.open {
+  transform: rotate(90deg);
 }
 
 /* ─── Funding preview ────────────────────────────────────────────────── */

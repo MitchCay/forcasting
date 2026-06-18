@@ -120,17 +120,43 @@ export async function syncUser(userId: string): Promise<void> {
     events.sort((a, b) => a.date.localeCompare(b.date));
 
     // ── Apply each event ──────────────────────────────────────────
+    // Helper: is this account a credit_card? CC balances are stored as a
+    // positive "amount owed" value, so charges/refunds flip sign relative
+    // to regular accounts AND mirror onto the statement balance.
+    const isCC = (accountId: string) =>
+      userAccounts.find((a) => a.id === accountId)?.type === "credit_card";
+
     for (const ev of events) {
       if (ev.kind === "scheduled") {
         const item = ev.item;
+        const accountIsCC = isCC(item.accountId);
+
         if (item.isIncome) {
-          balances.set(
-            item.accountId,
-            (balances.get(item.accountId) ?? 0) + item.amountCents,
-          );
+          // Refund/credit to CC: reduce owed amount + statement (floored).
+          // Income to a regular account: balance += amount as usual.
+          if (accountIsCC) {
+            balances.set(
+              item.accountId,
+              (balances.get(item.accountId) ?? 0) - item.amountCents,
+            );
+            ccStatements.set(
+              item.accountId,
+              Math.max(
+                0,
+                (ccStatements.get(item.accountId) ?? 0) - item.amountCents,
+              ),
+            );
+          } else {
+            balances.set(
+              item.accountId,
+              (balances.get(item.accountId) ?? 0) + item.amountCents,
+            );
+          }
           for (const goal of userGoals) {
             if (goal.fundedByScheduledItemId !== item.id) continue;
             if (goal.contributionPerOccurrenceCents == null) continue;
+            if (goal.paused) continue;
+            if (goal.startDate && ev.date < goal.startDate) continue;
             const saved = savedAmounts.get(goal.id) ?? 0;
             const remaining = goal.targetCents - saved;
             if (remaining <= 0) continue;
@@ -149,10 +175,23 @@ export async function syncUser(userId: string): Promise<void> {
             savedAmounts.set(goal.id, saved + contribution);
           }
         } else {
-          balances.set(
-            item.accountId,
-            (balances.get(item.accountId) ?? 0) - item.amountCents,
-          );
+          // Charge to a CC: grow both balance and statement.
+          // Expense from a regular account: balance -= amount as usual.
+          if (accountIsCC) {
+            balances.set(
+              item.accountId,
+              (balances.get(item.accountId) ?? 0) + item.amountCents,
+            );
+            ccStatements.set(
+              item.accountId,
+              (ccStatements.get(item.accountId) ?? 0) + item.amountCents,
+            );
+          } else {
+            balances.set(
+              item.accountId,
+              (balances.get(item.accountId) ?? 0) - item.amountCents,
+            );
+          }
         }
       } else {
         // cc_statement

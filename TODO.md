@@ -2,6 +2,17 @@
 
 Things deferred — captured here so we don't lose them.
 
+## Real-time chart preview as goal startDate slider moves
+The goal form has a regular date input for `startDate` today. Ideal UX is a
+date slider that previews the dashboard chart in real-time as it drags.
+Implementation sketch: extract a `useLocalForecast` hook that runs the
+shared `runForecast` engine in the browser against the current accounts +
+scheduled items + goals (already cached by React Query), with an optional
+override object that swaps a goal's startDate. While the goal form is open
+in "preview mode," push the override into a context the chart reads from.
+On Save, commit the override to the server normally. Engine is already pure
+so no server work required.
+
 ## Sync safety: advance last_applied on manual balance edits
 
 When the user manually updates an account balance (via the account form) or
@@ -110,5 +121,24 @@ future and adding potential new app ideas to the running TODO.md. On TODO functi
 Admin user (myself) able to write directly to TODO.md while other users can add items
 that could be saved to a "feature request" document. Will have use for the deployed
 version of the app so can pick up on tasks when back in development environment.
+
+## Statement closing date for accurate CC period assignment
+
+Add a `statement_closing_day` (or full closing date) field to `accounts` for
+credit cards. Today the forecast engine has no concept of when a statement
+closes, only when it's due (`statement_due_day`). As a result, a new charge
+scheduled to a CC is approximated as belonging to whichever statement is paid
+at the *next* due date (a one-cycle lag). That's a reasonable approximation but
+not exact: a charge that posts after the upcoming due date but before the
+statement closes should land on a different statement than one posting after
+close.
+
+With a closing-date field, the engine can assign each scheduled CC charge to
+the correct billing period: charges between the last close and the next close
+roll into that statement, which is then paid on the following due date. This
+replaces the current "locked statement balance, recompute remaining total on
+due day" heuristic (see the fix in `shared/src/forecast.ts` that stopped new
+charges from inflating the already-issued statement balance) with true
+period-accurate accounting.
 
 ## Correct conversion type issue in forcast.ts

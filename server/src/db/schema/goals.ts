@@ -1,4 +1,4 @@
-import { pgTable, uuid, timestamp, integer, text, date } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, timestamp, integer, text, date, boolean } from 'drizzle-orm/pg-core'
 import { user } from './auth'
 import { accounts } from './accounts'
 import { scheduledItems } from './scheduled-items'
@@ -11,7 +11,16 @@ export const goals = pgTable('goals', {
   name: text('name').notNull(),
   targetCents: integer('target_cents').notNull(),
   savedCents: integer('saved_cents').notNull().default(0),
+  // Optional contribution-start date. When null, contributions start
+  // immediately. When set, the contribution math and catchup sync both
+  // skip occurrences before this date — supports "I'll start saving for
+  // this in a month."
+  startDate: date('start_date'),
   targetDate: date('target_date').notNull(),
+  // Pause future contributions without losing what's already saved. Engine
+  // + sync skip goals where paused = true; resuming picks up at the same
+  // locked-in per-occurrence amount.
+  paused: boolean('paused').notNull().default(false),
   // The account where saved-up money lives (e.g. an Amex Savings account
   // earmarked for a vacation). Distinct from the *funding* account, which is
   // derived from `funded_by_scheduled_item_id` when set.

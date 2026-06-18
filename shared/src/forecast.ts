@@ -1,15 +1,14 @@
 import {
   addDaysISO,
   occurrencesOf,
-  type Account,
+  type AccountType,
   type ForecastCreditCardPayment,
   type ForecastEvent,
   type ForecastGoalContribution,
   type ForecastHorizon,
   type ForecastPoint,
   type ForecastResponse,
-  type Goal,
-  type ScheduledItem,
+  type Frequency,
 } from './index'
 
 // ─── Credit-card statement scheduling ───────────────────────────────────
@@ -51,14 +50,55 @@ export function nextDueAfter(currentISO: string, dueDay: number): string {
 }
 
 // ─── Inputs ─────────────────────────────────────────────────────────────
+//
+// The engine works against structural input types rather than the full
+// Zod-derived row schemas in `shared`. This lets the server hand in raw
+// Drizzle rows (timestamps as Date) without casting — only the fields the
+// engine actually reads are declared here.
+
+export interface ForecastAccountInput {
+  id: string
+  name: string
+  type: AccountType
+  currentBalanceCents: number
+  excludeFromForecast: boolean
+  statementBalanceCents: number | null
+  statementDueDay: number | null
+  statementPaidFromAccountId: string | null
+}
+
+export interface ForecastScheduledItemInput {
+  id: string
+  name: string
+  accountId: string
+  amountCents: number
+  frequency: Frequency
+  startDate: string
+  endDate: string | null
+  isIncome: boolean
+  category: string | null
+}
+
+export interface ForecastGoalInput {
+  id: string
+  name: string
+  savedCents: number
+  targetCents: number
+  startDate: string | null
+  targetDate: string
+  paused: boolean
+  targetAccountId: string
+  fundedByScheduledItemId: string | null
+  contributionPerOccurrenceCents: number | null
+}
 
 export interface ForecastInputs {
   /** ISO date the forecast is computed from. Defaults to "today" UTC. */
   todayISO: string
   horizon: ForecastHorizon
-  accounts: Account[]
-  scheduledItems: ScheduledItem[]
-  goals: Goal[]
+  accounts: ForecastAccountInput[]
+  scheduledItems: ForecastScheduledItemInput[]
+  goals: ForecastGoalInput[]
 }
 
 // Maps a horizon enum to a day count. We keep this here (rather than in
@@ -140,7 +180,7 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
   // We pre-enumerate so we can sort once and walk in order. For 5-year
   // horizons with weekly/biweekly items this stays well under 1000
   // events for typical users.
-  const eventsByDate = new Map<string, ScheduledItem[]>()
+  const eventsByDate = new Map<string, ForecastScheduledItemInput[]>()
   for (const item of scheduledItems) {
     for (const date of occurrencesOf(item, todayISO, endISO)) {
       const arr = eventsByDate.get(date)
@@ -151,7 +191,7 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
 
   // Goals indexed by their funding scheduled item, so a single occurrence
   // of an income can fund multiple goals at once.
-  const goalsByFundingId = new Map<string, Goal[]>()
+  const goalsByFundingId = new Map<string, ForecastGoalInput[]>()
   for (const g of goals) {
     if (!g.fundedByScheduledItemId) continue
     const arr = goalsByFundingId.get(g.fundedByScheduledItemId)
@@ -165,9 +205,9 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
   // each card's mutating statement_balance separately from currentBalance,
   // so the user's recursive "next statement = remaining balance" rule can
   // be applied at each payment day.
-  const ccPaymentsByDate = new Map<string, Account[]>()
+  const ccPaymentsByDate = new Map<string, ForecastAccountInput[]>()
   const ccStatement = new Map<string, number>()
-  const accountById = new Map<string, Account>()
+  const accountById = new Map<string, ForecastAccountInput>()
   for (const a of accounts) accountById.set(a.id, a)
 
   for (const a of accounts) {
@@ -223,10 +263,20 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
         category: item.category,
       })
 
+      const itemAccount = accountById.get(item.accountId)
+      const isCCAccount = itemAccount?.type === 'credit_card'
+
       if (item.isIncome) {
-        // Income lands in the item's account — never makes an account go
-        // negative on its own, so no transition check needed here.
-        bump(balances, item.accountId, item.amountCents)
+        // Income into a regular account: balance += amount.
+        // Income into a CC (refund / credit / direct payment): reduces the
+        // amount owed (the card's running total balance). It does NOT touch
+        // the already-issued statement balance — that figure is locked at
+        // statement close and is recomputed only on a statement-due day.
+        if (isCCAccount) {
+          bump(balances, item.accountId, -item.amountCents)
+        } else {
+          bump(balances, item.accountId, item.amountCents)
+        }
         dayIncome += item.amountCents
 
         // Then divert any goal contributions tied to this income. These can
@@ -234,6 +284,11 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
         const fundedGoals = goalsByFundingId.get(item.id) ?? []
         for (const goal of fundedGoals) {
           if (goal.contributionPerOccurrenceCents == null) continue
+          // Paused goals don't receive contributions; savedCents stays put.
+          if (goal.paused) continue
+          // Honor a deferred start date: skip occurrences before the goal
+          // actually "starts saving".
+          if (goal.startDate && date < goal.startDate) continue
           const saved = goalSaved.get(goal.id) ?? 0
           const remaining = goal.targetCents - saved
           if (remaining <= 0) continue
@@ -270,9 +325,18 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
           }
         }
       } else {
-        // Expense draws from the item's account.
+        // Expense from a regular account: balance -= amount (drains cash).
+        // Charge to a CC: balance += amount on the card's running TOTAL only.
+        // A new charge does not appear on the already-issued statement — it
+        // belongs to the next statement. The statement balance stays locked
+        // until a statement-due day, where the payment-day logic rolls the
+        // remaining total into the next statement via the recursive rule.
         const preExpense = snapshotBalances()
-        bump(balances, item.accountId, -item.amountCents)
+        if (isCCAccount) {
+          bump(balances, item.accountId, item.amountCents)
+        } else {
+          bump(balances, item.accountId, -item.amountCents)
+        }
         dayExpenses += item.amountCents
         checkForNegativeTransition(preExpense, date, {
           name: item.name,
@@ -438,7 +502,7 @@ function bump(map: Map<string, number>, key: string, delta: number) {
 function snapshotPoint(
   date: string,
   balances: Map<string, number>,
-  accounts: Account[],
+  accounts: ForecastAccountInput[],
   scheduledIncomeCents: number,
   scheduledExpensesCents: number,
   goalContributionsCents: number,
