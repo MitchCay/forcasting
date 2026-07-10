@@ -14,7 +14,9 @@ function usePasskeys() {
       const res = await authClient.passkey.listUserPasskeys()
       // Better Auth's response: { data: PasskeyRow[] | null, error: ... }
       if (res.error) throw new Error(res.error.message ?? 'Failed to load passkeys')
-      return (res.data ?? []) as PasskeyRow[]
+      // Better Auth types createdAt as Date; we only read id/name/length here,
+      // so narrow through unknown rather than reshaping every field.
+      return (res.data ?? []) as unknown as PasskeyRow[]
     },
   })
 }

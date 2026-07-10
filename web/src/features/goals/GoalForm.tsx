@@ -136,6 +136,26 @@ export function GoalForm({
   }, [accounts])
 
   const onSubmit = form.handleSubmit(async (values) => {
+    // Guard: reject a past one-time funding source (its occurrence has
+    // already happened, so it can't fund a future goal).
+    if (values.fundedByScheduledItemId) {
+      const item = incomeItems.find(
+        (it) => it.id === values.fundedByScheduledItemId,
+      )
+      if (
+        item &&
+        item.frequency === 'one_time' &&
+        item.startDate < todayISO()
+      ) {
+        form.setError('fundedByScheduledItemId', {
+          type: 'validate',
+          message:
+            'A one-time income from a past date can’t fund a goal — pick a recurring or future income.',
+        })
+        return
+      }
+    }
+
     const payload = {
       name: values.name,
       targetCents: dollarsToCents(values.targetDollars),
@@ -144,6 +164,9 @@ export function GoalForm({
       targetDate: values.targetDate,
       targetAccountId: values.targetAccountId,
       fundedByScheduledItemId: values.fundedByScheduledItemId || null,
+      // The form doesn't edit pause state (that's toggled from the goal list),
+      // so preserve the existing value on edit and default new goals to active.
+      paused: goal?.paused ?? false,
     }
     if (goal) {
       await update.mutateAsync({ id: goal.id, ...payload })
@@ -162,6 +185,20 @@ export function GoalForm({
     () => (scheduledItems ?? []).filter((it) => it.isIncome),
     [scheduledItems],
   )
+
+  // A one-time income whose date has already passed can never contribute to a
+  // (necessarily future) goal — its single occurrence is behind us. Exclude
+  // those from the funding options so they can't be picked. We keep an item
+  // that the goal being edited already points at, so editing an existing goal
+  // doesn't silently drop its funding source.
+  const selectableIncomeItems = useMemo(() => {
+    const today = todayISO()
+    return incomeItems.filter(
+      (it) =>
+        !(it.frequency === 'one_time' && it.startDate < today) ||
+        it.id === goal?.fundedByScheduledItemId,
+    )
+  }, [incomeItems, goal?.fundedByScheduledItemId])
   const watchedFundingId = form.watch('fundedByScheduledItemId')
   const watchedTarget = form.watch('targetDollars')
   const watchedSaved = form.watch('savedDollars')
@@ -307,7 +344,7 @@ export function GoalForm({
       >
         <select {...form.register('fundedByScheduledItemId')}>
           <option value="">— No automatic funding —</option>
-          {incomeItems.map((it) => (
+          {selectableIncomeItems.map((it) => (
             <option key={it.id} value={it.id}>
               {it.name} ({frequencyLabels[it.frequency]})
             </option>

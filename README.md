@@ -67,10 +67,32 @@ bun run dev
 The web dev server proxies `/api/*` to the Hono server, so the frontend
 talks to `http://localhost:5173/api/...` in dev.
 
-## What's built (and what isn't)
+## Typecheck & build
 
-This is the Phase 1 scaffold. The data model, auth, and project structure
-are in place. Routes and UI for each domain (accounts, scheduled items,
-goals, forecast, importers) get built out next.
+```bash
+cd web && bunx tsc -b        # web typecheck (should be 0 errors)
+cd web && bun run build      # tsc -b && vite build
+```
 
-See `TODO.md` for things deliberately deferred.
+## What's built
+
+- **Auth** — Better Auth with email/password and passkeys.
+- **Accounts** — checking / savings / credit card / cash / investment / loan /
+  other, with balance snapshots, an `exclude_from_forecast` ("reserved") flag,
+  and credit-card statement modeling (balance, due day, paid-from account).
+- **Scheduled items** — recurring or one-time income/expenses driving the
+  forecast (weekly through annual, plus semi-monthly).
+- **Goals** — target + date, optional deferred start, and optional funding from
+  a scheduled income (per-occurrence contribution is locked in on save).
+- **Forecast dashboard** — day-by-day projection (1 month–5 years) with an
+  available-balance area chart, a faint reserved line (expandable per-account),
+  summary tiles, category breakdown pie, and negative-balance / infeasible-goal
+  warnings.
+- **Notes** — free-form ledger tables (name / category / amount) with per-note
+  and combined summary stats and category pies. Don't affect the forecast.
+
+The forecast engine (`shared/src/forecast.ts`) is pure and runs identically on
+the server and (potentially) the client. Importers (CSV/OFX/SimpleFIN) are the
+main unbuilt area — see `TODO.md` for those and other deferred work.
+
+New to the codebase (including Claude)? Start with `CLAUDE.md`.

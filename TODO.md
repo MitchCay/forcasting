@@ -141,4 +141,22 @@ due day" heuristic (see the fix in `shared/src/forecast.ts` that stopped new
 charges from inflating the already-issued statement balance) with true
 period-accurate accounting.
 
-## Correct conversion type issue in forcast.ts
+---
+
+## Done
+
+- **Web package typechecks clean.** The two lingering `tsc` conversion/type
+  errors are resolved: the Better Auth passkey list is narrowed through
+  `unknown` (`AddPasskeyCard.tsx`), and the goal form now includes `paused` in
+  its submit payload (`GoalForm.tsx`). `cd web && bunx tsc -b` reports 0 errors.
+- **Notes page:** collapse-all / expand-all, notes start collapsed, collapsed
+  notes show a horizontal stats strip + horizontal category pie, and a
+  first-in-list "All notes — combined" card (toggled via a switch, persisted in
+  `localStorage`) shows summed stats + a combined pie.
+- **Dashboard forecast chart:** reserved and available lines can each be
+  expanded into per-account lines (slight color variations, shared palette in
+  `web/src/features/forecast/palette.ts`) via switches next to Add transaction.
+  When expanded, the summed line is dropped and the summary tiles + tooltip
+  break the totals out per account with matching color swatches.
+- **Goals:** a one-time income dated in the past can no longer be chosen as a
+  goal funding source (filtered from the dropdown + validated on submit).

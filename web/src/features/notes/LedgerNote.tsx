@@ -9,6 +9,7 @@ import {
 import { Card } from '../../components/Card'
 import { Combobox } from '../../components/Combobox'
 import { CategoryPieChart } from '../forecast/CategoryPieChart'
+import { LedgerStatsRow, Stat, isVenmoName } from './LedgerStats'
 import { useScheduledItems } from '../scheduled/queries'
 import {
   useCreateNote,
@@ -83,14 +84,6 @@ function ensureTrailing(drafts: DraftEntry[]): DraftEntry[] {
   return drafts
 }
 
-// An entry counts as a Venmo entry when its name mentions venmo, in any
-// casing or surrounded by other text (e.g. "Venmo - rent", "split via venmo").
-// Matching the name (rather than the category) is intentional: users type the
-// payment method into the entry name as free text.
-function isVenmoName(name: string): boolean {
-  return /venmo/i.test(name)
-}
-
 function parseAmount(raw: string): number {
   if (raw.trim() === '' || raw === '.') return 0
   const n = Number(raw)
@@ -124,6 +117,8 @@ export function LedgerNote({
   note,
   initiallyEditing = false,
   onCancelNew,
+  collapsed: collapsedProp,
+  onToggleCollapse,
 }: {
   /** Null when creating; the editor saves via createNote on submit. */
   note: Note | null
@@ -131,6 +126,11 @@ export function LedgerNote({
   /** Invoked when the user cancels a brand-new note so the parent can
       remove it from the list. */
   onCancelNew?: () => void
+  /** When provided, collapse is controlled by the parent (so a page-level
+      "collapse all / expand all" can drive every note). Falls back to local
+      state when omitted (e.g. the brand-new draft). */
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   const create = useCreateNote()
   const update = useUpdateNote()
@@ -139,8 +139,12 @@ export function LedgerNote({
   const [editing, setEditing] = useState(initiallyEditing)
   // Saved notes can be folded up to just the title row so a long list of
   // weekly ledgers stays scannable. Editing always forces expanded — you
-  // can't usefully edit a collapsed table.
-  const [collapsed, setCollapsed] = useState(false)
+  // can't usefully edit a collapsed table. Collapse is controlled by the
+  // parent when a `collapsed` prop is passed; otherwise we keep local state.
+  const [internalCollapsed, setInternalCollapsed] = useState(false)
+  const collapsed = collapsedProp ?? internalCollapsed
+  const toggleCollapse =
+    onToggleCollapse ?? (() => setInternalCollapsed((v) => !v))
   const [title, setTitle] = useState(note?.title ?? '')
   const [drafts, setDrafts] = useState<DraftEntry[]>(() => {
     const base = note?.content.entries.length
@@ -305,23 +309,6 @@ export function LedgerNote({
         ) : (
           <span className="ledger__title">
             <span>{titleDisplay}</span>
-            {collapsed && stats.count > 0 && (
-              <span className="ledger__title-summary muted">
-                {stats.count} {stats.count === 1 ? 'entry' : 'entries'}
-                {' · '}
-                <span
-                  className={
-                    stats.total > 0
-                      ? 'positive'
-                      : stats.total < 0
-                      ? 'negative'
-                      : ''
-                  }
-                >
-                  {formatUSD(stats.total)}
-                </span>
-              </span>
-            )}
           </span>
         )
       }
@@ -350,7 +337,7 @@ export function LedgerNote({
               <button
                 type="button"
                 className="ledger__collapse"
-                onClick={() => setCollapsed((v) => !v)}
+                onClick={toggleCollapse}
                 aria-label={collapsed ? 'Expand' : 'Collapse'}
                 aria-expanded={!collapsed}
                 title={collapsed ? 'Expand' : 'Collapse'}
@@ -529,37 +516,23 @@ export function LedgerNote({
         </aside>
       </div>
       )}
+
+      {/* Collapsed: fold the note down to a horizontal strip of the same
+          summary stats shown in the expanded aside, plus the expenses-by-
+          category pie in its horizontal layout. */}
+      {!bodyVisible && (
+        <div className="ledger-collapsed">
+          <LedgerStatsRow stats={stats} showEntries />
+          {categorySlices.length > 0 && (
+            <CategoryPieChart
+              slices={categorySlices}
+              height={180}
+              orientation="horizontal"
+            />
+          )}
+        </div>
+      )}
     </Card>
-  )
-}
-
-// ── Stat tile ───────────────────────────────────────────────────────────
-
-function Stat({
-  label,
-  cents,
-  plain,
-  className,
-  colorize,
-}: {
-  label: string
-  cents?: number
-  plain?: string
-  className?: string
-  colorize?: boolean
-}) {
-  let valueClass = className ?? ''
-  if (colorize && cents != null) {
-    if (cents > 0) valueClass = 'positive'
-    else if (cents < 0) valueClass = 'negative'
-  }
-  return (
-    <div className="ledger-stat">
-      <div className="ledger-stat__label">{label}</div>
-      <div className={`ledger-stat__value ${valueClass}`}>
-        {plain ?? (cents != null ? formatUSD(cents) : '')}
-      </div>
-    </div>
   )
 }
 

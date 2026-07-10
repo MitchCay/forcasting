@@ -13,10 +13,12 @@ import {
 } from "recharts";
 import {
   formatUSD,
+  type Account,
   type ForecastHorizon,
   type ForecastPoint,
   type ForecastResponse,
 } from "shared";
+import { availableColor, reservedColor } from "./palette";
 
 // Tick formatter that adapts label density to the horizon. Short horizons
 // show day-and-month; long horizons collapse to month-and-year so the axis
@@ -56,10 +58,42 @@ const compactUSD = (cents: number) =>
 export function ForecastChart({
   forecast,
   horizon,
+  accounts,
+  reservedExpanded = false,
+  availableExpanded = false,
 }: {
   forecast: ForecastResponse;
   horizon: ForecastHorizon;
+  /** Account metadata, used to break the reserved/available totals into
+      per-account lines. When omitted, only the summed lines render. */
+  accounts?: Account[];
+  reservedExpanded?: boolean;
+  availableExpanded?: boolean;
 }) {
+  // Split accounts into the two forecast buckets. Credit cards are excluded
+  // from both — their balances are tracked separately and only hit cash on
+  // statement-due days.
+  const reservedAccounts = useMemo(
+    () =>
+      (accounts ?? []).filter(
+        (a) => a.excludeFromForecast && a.type !== "credit_card",
+      ),
+    [accounts],
+  );
+  const availableAccounts = useMemo(
+    () =>
+      (accounts ?? []).filter(
+        (a) => !a.excludeFromForecast && a.type !== "credit_card",
+      ),
+    [accounts],
+  );
+  // Only meaningful to break out when there's more than one account in the
+  // bucket — a single account IS the total.
+  const showReservedBreakout =
+    reservedExpanded && reservedAccounts.length > 1;
+  const showAvailableBreakout =
+    availableExpanded && availableAccounts.length > 1;
+
   // ── Build chart data ──────────────────────────────────────────────
   // Recharts likes a flat array. We keep cents on the data and format on
   // display so axis math stays integer-precise. The full point is attached
@@ -188,34 +222,79 @@ export function ForecastChart({
         )}
 
         <Tooltip
-          content={<ForecastTooltip />}
+          // Element form: recharts clones this and injects active/payload at
+          // hover. Our extra props (the per-account breakout lists) ride along.
+          content={
+            <ForecastTooltip
+              reservedAccounts={showReservedBreakout ? reservedAccounts : []}
+              availableAccounts={
+                showAvailableBreakout ? availableAccounts : []
+              }
+            />
+          }
           cursor={{ stroke: "var(--muted)" }}
         />
 
-        {/* Reserved as a faint dashed secondary line. */}
-        <Line
-          type="monotone"
-          dataKey="reserved"
-          stroke="var(--muted)"
-          strokeDasharray="4 4"
-          strokeWidth={1.5}
-          dot={false}
-          isAnimationActive={false}
-          name="reserved"
-        />
+        {/* Reserved. Either a single faint dashed total line, or — when
+            expanded — one slightly-varied dashed line per reserved account
+            (no summed line in the expanded view; it reads too busy). */}
+        {showReservedBreakout ? (
+          reservedAccounts.map((a, i) => (
+            <Line
+              key={a.id}
+              type="monotone"
+              dataKey={(d: ChartDatum) => d.point.byAccount[a.id] ?? 0}
+              stroke={reservedColor(i)}
+              strokeDasharray="4 4"
+              strokeWidth={1.25}
+              strokeOpacity={0.85}
+              dot={false}
+              isAnimationActive={false}
+              name={`Reserved · ${a.name}`}
+            />
+          ))
+        ) : (
+          <Line
+            type="monotone"
+            dataKey="reserved"
+            stroke="var(--muted)"
+            strokeDasharray="4 4"
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+            name="reserved"
+          />
+        )}
 
-        {/* Available as a filled area. Stroke + fill flip at y=0 only when
-            the line actually crosses zero; otherwise solid colors. */}
-        <Area
-          type="monotone"
-          dataKey="available"
-          stroke={strokeColor}
-          strokeWidth={2}
-          fill={fillColor}
-          dot={false}
-          isAnimationActive={false}
-          name="available"
-        />
+        {/* Available. Normally a filled area with a zero-crossing gradient.
+            When expanded, per-account lines carry the detail and the summed
+            area is dropped entirely. */}
+        {showAvailableBreakout ? (
+          availableAccounts.map((a, i) => (
+            <Line
+              key={a.id}
+              type="monotone"
+              dataKey={(d: ChartDatum) => d.point.byAccount[a.id] ?? 0}
+              stroke={availableColor(i)}
+              strokeWidth={1.75}
+              strokeOpacity={0.9}
+              dot={false}
+              isAnimationActive={false}
+              name={`Available · ${a.name}`}
+            />
+          ))
+        ) : (
+          <Area
+            type="monotone"
+            dataKey="available"
+            stroke={strokeColor}
+            strokeWidth={2}
+            fill={fillColor}
+            dot={false}
+            isAnimationActive={false}
+            name="available"
+          />
+        )}
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -235,7 +314,17 @@ type ChartDatum = {
   point: ForecastPoint;
 };
 
-function ForecastTooltip({ active, payload }: TooltipProps<number, string>) {
+function ForecastTooltip({
+  active,
+  payload,
+  reservedAccounts = [],
+  availableAccounts = [],
+}: TooltipProps<number, string> & {
+  /** When non-empty, the tooltip lists these accounts individually instead
+      of the single summed Available / Reserved rows. */
+  reservedAccounts?: Account[];
+  availableAccounts?: Account[];
+}) {
   if (!active || !payload || payload.length === 0) return null;
   const datum = payload[0]?.payload as ChartDatum | undefined;
   if (!datum) return null;
@@ -290,10 +379,31 @@ function ForecastTooltip({ active, payload }: TooltipProps<number, string>) {
       <div className="forecast-tooltip__date">{dateLabel}</div>
 
       <div className="forecast-tooltip__totals">
-        <Row label="Available" value={formatUSD(datum.available)} />
-        {datum.reserved !== 0 && (
-          <Row label="Reserved" value={formatUSD(datum.reserved)} muted />
+        {availableAccounts.length > 0 ? (
+          availableAccounts.map((a, i) => (
+            <Row
+              key={a.id}
+              label={a.name}
+              value={formatUSD(point.byAccount[a.id] ?? 0)}
+              swatch={availableColor(i)}
+            />
+          ))
+        ) : (
+          <Row label="Available" value={formatUSD(datum.available)} />
         )}
+        {reservedAccounts.length > 0
+          ? reservedAccounts.map((a, i) => (
+              <Row
+                key={a.id}
+                label={a.name}
+                value={formatUSD(point.byAccount[a.id] ?? 0)}
+                swatch={reservedColor(i)}
+                muted
+              />
+            ))
+          : datum.reserved !== 0 && (
+              <Row label="Reserved" value={formatUSD(datum.reserved)} muted />
+            )}
         <Row label="Total" value={formatUSD(datum.total)} muted />
         {hasActivity && datum.availableNetChange !== 0 && (
           <Row
@@ -398,19 +508,30 @@ function Row({
   value,
   muted,
   kind,
+  swatch,
 }: {
   label: string;
   value: string;
   muted?: boolean;
   /** Color the amount to match income/expense semantics. */
   kind?: "income" | "expense";
+  /** Optional color dot that ties this row to its chart line. */
+  swatch?: string;
 }) {
   const amountClass = kind
     ? `forecast-tooltip__amount forecast-tooltip__amount--${kind}`
     : "forecast-tooltip__amount";
   return (
     <div className={`forecast-tooltip__row ${muted ? "muted" : ""}`}>
-      <span>{label}</span>
+      <span className="forecast-tooltip__label">
+        {swatch && (
+          <span
+            className="forecast-tooltip__swatch"
+            style={{ background: swatch }}
+          />
+        )}
+        {label}
+      </span>
       <span className={amountClass}>{value}</span>
     </div>
   );
