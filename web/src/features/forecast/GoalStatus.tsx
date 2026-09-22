@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   formatUSD,
   frequencyLabels,
+  todayISO,
   type ForecastResponse,
   type Goal,
   type ScheduledItem,
@@ -32,11 +33,20 @@ export function GoalStatus({ forecast }: { forecast: ForecastResponse }) {
 
   if (!goals || goals.length === 0) return null;
 
+  const today = todayISO();
+  // A goal that is BOTH reached and past its target date is done and dusted —
+  // drop it from the dashboard. One that's only reached (date still ahead) or
+  // only past-due (not yet reached) still shows.
+  const visibleGoals = goals.filter(
+    (g) => !(g.savedCents >= g.targetCents && g.targetDate < today),
+  );
+  if (visibleGoals.length === 0) return null;
+
   return (
     <div className="goal-status">
       <h3>Goals</h3>
       <ul className="goal-status__list">
-        {goals.map((g) => (
+        {visibleGoals.map((g) => (
           <GoalRow
             key={g.id}
             goal={g}

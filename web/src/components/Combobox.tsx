@@ -34,6 +34,26 @@ type Item =
   | { kind: 'option'; value: string }
   | { kind: 'create'; value: string }
 
+// After a Tab-commit closes the popover, move focus to the next tabbable
+// element after the combobox trigger — so Tab both selects AND advances, the
+// way a native autocomplete does. DOM order == tab order here (the app only
+// uses tabindex 0 / -1).
+function advanceFocusFrom(el: HTMLElement | null): void {
+  if (!el) return
+  const focusables = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex]',
+    ),
+  ).filter(
+    (f) =>
+      f.tabIndex >= 0 && !f.hasAttribute('disabled') && f.offsetParent !== null,
+  )
+  const idx = focusables.indexOf(el)
+  if (idx >= 0 && idx < focusables.length - 1) {
+    focusables[idx + 1]!.focus()
+  }
+}
+
 export function Combobox({
   value,
   options,
@@ -160,6 +180,20 @@ export function Combobox({
       e.preventDefault()
       const item = items[highlight]
       if (item) selectItem(item)
+    } else if (e.key === 'Tab' && !e.shiftKey) {
+      // Tab commits the highlighted option (the top one by default) and then
+      // lets focus advance to the next field. Only when there's something to
+      // commit — otherwise fall through to the browser's normal Tab.
+      const item = items[highlight]
+      if (item) {
+        e.preventDefault()
+        onChange(item.value)
+        setSearch('')
+        setHighlight(0)
+        setOpen(false)
+        const trigger = triggerRef.current
+        requestAnimationFrame(() => advanceFocusFrom(trigger))
+      }
     }
   }
 

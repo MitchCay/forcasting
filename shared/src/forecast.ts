@@ -461,6 +461,9 @@ export function runForecast(inputs: ForecastInputs): ForecastResponse {
     if (proj.onTrack) continue
     const goal = goals.find((g) => g.id === proj.goalId)
     if (!goal) continue
+    // A goal that's already reached its target is done — never flag it as
+    // infeasible, even if its target date has since passed.
+    if (goal.savedCents >= goal.targetCents) continue
     // Only warn for goals that were supposed to hit by horizon end. A goal
     // with a target_date past the horizon is still in flight, not infeasible.
     if (goal.targetDate > endISO) continue

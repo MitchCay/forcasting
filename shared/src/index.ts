@@ -643,6 +643,13 @@ export const forecastPointSchema = z.object({
   // cash on statement-due days, not continuously.
   creditCardDebtCents: cents,
   byAccount: z.record(z.string().uuid(), cents),
+  // ── Adjusted / predicted line (optional) ──────────────────────────
+  // Present when a spending model was built from history. `adjusted…` layers
+  // projected discretionary spend on top of the scheduled-only available line;
+  // `adjustedByCategory` holds cumulative projected spend per category up to
+  // this date (positive cents).
+  adjustedAvailableBalanceCents: cents.optional(),
+  adjustedByCategory: z.record(z.string(), cents).optional(),
   scheduledIncomeCents: cents,
   scheduledExpensesCents: cents,
   goalContributionsCents: cents,
@@ -680,6 +687,38 @@ export const goalProjectionSchema = z.object({
 })
 export type GoalProjection = z.infer<typeof goalProjectionSchema>
 
+// ─── Spending model (empirical prediction) ──────────────────────────────
+// Summary of the history-derived spending model that produces the adjusted /
+// predicted line. Driven primarily by the user's weekly ledger notes, with the
+// total nudged toward what balance-snapshot history shows is really happening.
+
+export const spendingCategoryModelSchema = z.object({
+  category: z.string(),
+  // Projected spend for this category (post-calibration), expressed per week
+  // for a friendly readout.
+  weeklyCents: cents,
+  // Per-week change when trend is enabled (+ = trending up). 0 when trend is
+  // off or there isn't enough history to fit one.
+  weeklyTrendCents: cents,
+})
+export type SpendingCategoryModel = z.infer<typeof spendingCategoryModelSchema>
+
+export const spendingModelSummarySchema = z.object({
+  // Sorted descending by weeklyCents.
+  categories: z.array(spendingCategoryModelSchema),
+  // Categories left out of the adjustment because a scheduled item already
+  // models them (avoids double-counting rent, subscriptions, etc.).
+  excludedCategories: z.array(z.string()),
+  // Factor applied to the ledger-derived rates after the balance-history
+  // sanity check (1 = ledgers taken as-is). Damped + clamped so ledgers stay
+  // the primary driver.
+  calibrationFactor: z.number(),
+  calibrationApplied: z.boolean(),
+  weeksObserved: z.number().int().nonnegative(),
+  lookbackStart: isoDate,
+})
+export type SpendingModelSummary = z.infer<typeof spendingModelSummarySchema>
+
 export const forecastResponseSchema = z.object({
   horizon: forecastHorizonSchema,
   generatedAt: z.string(),
@@ -687,6 +726,9 @@ export const forecastResponseSchema = z.object({
   goalProjections: z.array(goalProjectionSchema),
   // Sorted descending by totalCents.
   categoryBreakdown: z.array(forecastCategoryBreakdownSchema),
+  // The empirical spending model behind the adjusted line, or null when there
+  // wasn't enough history to build one.
+  spendingModel: spendingModelSummarySchema.nullable().optional(),
   warnings: z.array(
     z.object({
       type: z.enum(['negative_balance', 'goal_infeasible', 'stale_balance']),
@@ -770,6 +812,7 @@ export const noteSchema = z.discriminatedUnion('type', [
 ])
 export type Note = z.infer<typeof noteSchema>
 
-// ─── Forecast engine ────────────────────────────────────────────────────
+// ─── Forecast engine + spending model ───────────────────────────────────
 
 export * from './forecast'
+export * from './spending'

@@ -1436,3 +1436,212 @@ button.link:hover {
 @media (max-width: 720px) {
   .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* ─── Savings reconciliation ──────────────────────────────────────────── */
+.recon__intro {
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+}
+.recon__headline {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 0.85rem;
+}
+.recon__headline--ok {
+  color: var(--positive);
+  border-color: rgba(74, 222, 128, 0.35);
+  background: rgba(74, 222, 128, 0.07);
+}
+.recon__headline--bad {
+  color: var(--negative);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.07);
+}
+.recon__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.recon__row {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+.recon__row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.recon__row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.recon__name {
+  font-weight: 600;
+}
+.recon__meta {
+  font-size: 0.82rem;
+  margin-top: 0.25rem;
+}
+.recon__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.recon__total .negative {
+  font-weight: 600;
+}
+
+/* Caption under the forecast chart describing the predicted line. */
+.forecast-chart__note {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+/* ─── Predicted-line explainer ("Why this line?") ─────────────────────── */
+.prediction-why {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.prediction-why > summary {
+  cursor: pointer;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+}
+.prediction-why > summary::-webkit-details-marker {
+  display: none;
+}
+.prediction-why > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.4rem;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.prediction-why[open] > summary::before {
+  transform: rotate(90deg);
+}
+.prediction-why__body {
+  padding: 0 0.85rem 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.prediction-why__body > p {
+  margin: 0.5rem 0 0;
+}
+.prediction-why__lead {
+  color: var(--text);
+}
+.prediction-why__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0.75rem 0 0.35rem;
+}
+.prediction-why__drivers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.prediction-why__drivers li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.prediction-why__cat {
+  font-weight: 500;
+}
+.prediction-why__amt {
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.prediction-why__trend--up {
+  color: var(--negative);
+}
+.prediction-why__trend--down {
+  color: var(--positive);
+}
+.prediction-why__more {
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+}
+.prediction-why__caveat {
+  font-style: italic;
+}
+
+/* Predicted-line exclusion controls (goal-funded categories). */
+.prediction-why__drivers li {
+  align-items: center;
+}
+.prediction-why__cat {
+  flex: 1 1 auto;
+}
+.prediction-why__amt {
+  flex: 0 0 auto;
+}
+.prediction-why__exclude {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  text-decoration: underline;
+}
+.prediction-why__exclude:hover {
+  color: var(--text);
+}
+.prediction-why__hint {
+  font-size: 0.8rem;
+  margin-top: 0.45rem;
+  font-style: italic;
+}
+.prediction-why__excluded {
+  margin-top: 0.85rem;
+}
+.prediction-why__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+.prediction-why__chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.prediction-why__chip:hover {
+  border-color: var(--muted);
+}
+.prediction-why__chip span {
+  color: var(--muted);
+}

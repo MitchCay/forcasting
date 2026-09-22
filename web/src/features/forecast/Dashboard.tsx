@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { ForecastHorizon } from 'shared'
 import { Card } from '../../components/Card'
@@ -9,10 +9,31 @@ import { useAccounts } from '../accounts/queries'
 import { CategoryPieChart } from './CategoryPieChart'
 import { ForecastChart } from './ForecastChart'
 import { ForecastWarnings, GoalStatus } from './GoalStatus'
+import { GoalReconciliation } from './GoalReconciliation'
+import { PredictionExplainer } from './PredictionExplainer'
 import { HorizonSelector } from './HorizonSelector'
 import { OneTimeTransactionForm } from './OneTimeTransactionForm'
 import { SummaryTiles } from './SummaryTiles'
 import { useForecast } from './queries'
+
+// Categories the user has excluded from the predicted-spending line — e.g.
+// travel that's actually funded from a goal, so the goal already budgets it.
+// Persisted per-browser. Defaults to excluding "Travel", which is usually
+// goal-funded; the user can add it back or exclude others from the chart.
+const PREDICT_EXCLUDE_KEY = 'forecast.predictExclude'
+
+function readPredictExclude(): string[] {
+  try {
+    const raw = localStorage.getItem(PREDICT_EXCLUDE_KEY)
+    if (raw == null) return ['Travel']
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : []
+  } catch {
+    return ['Travel']
+  }
+}
 
 export function Dashboard() {
   const [horizon, setHorizon] = useState<ForecastHorizon>('3m')
@@ -20,8 +41,37 @@ export function Dashboard() {
   // Whether to break the reserved / available totals into per-account lines.
   const [reservedExpanded, setReservedExpanded] = useState(false)
   const [availableExpanded, setAvailableExpanded] = useState(false)
+  // History-driven predicted spending line + its per-category breakout.
+  const [showPredicted, setShowPredicted] = useState(false)
+  const [predictedByCategory, setPredictedByCategory] = useState(false)
+  // Layer a bounded spending trend on the predicted line (exploratory; off by
+  // default). Changes the forecast request, so it flows through useForecast.
+  const [showTrend, setShowTrend] = useState(false)
+  // Categories excluded from the prediction (goal-funded, etc.), persisted.
+  const [excludeCats, setExcludeCats] = useState<string[]>(readPredictExclude)
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREDICT_EXCLUDE_KEY, JSON.stringify(excludeCats))
+    } catch {
+      // Ignore storage failures (private mode, quota, etc.).
+    }
+  }, [excludeCats])
+  const excludeCategory = (c: string) =>
+    setExcludeCats((prev) =>
+      prev.some((x) => x.toLowerCase() === c.toLowerCase())
+        ? prev
+        : [...prev, c],
+    )
+  const includeCategory = (c: string) =>
+    setExcludeCats((prev) =>
+      prev.filter((x) => x.toLowerCase() !== c.toLowerCase()),
+    )
   const { data: accounts } = useAccounts()
-  const { data: forecast, isLoading, error } = useForecast(horizon)
+  const { data: forecast, isLoading, error } = useForecast(
+    horizon,
+    excludeCats,
+    showTrend,
+  )
 
   // A breakout toggle is only worth showing when the bucket has more than one
   // (non-credit-card) account — otherwise the line already IS that account.
@@ -31,6 +81,9 @@ export function Dashboard() {
   const availableCount = (accounts ?? []).filter(
     (a) => !a.excludeFromForecast && a.type !== 'credit_card',
   ).length
+
+  const spendingModel = forecast?.spendingModel ?? null
+  const hasSpendingModel = !!spendingModel && spendingModel.categories.length > 0
 
   // Empty state: brand-new user. Send them to Accounts so the rest of the
   // dashboard has something to chart.
@@ -98,6 +151,30 @@ export function Dashboard() {
                 title="Break the available line into one line per account"
               />
             )}
+            {hasSpendingModel && (
+              <Switch
+                checked={showPredicted}
+                onChange={setShowPredicted}
+                label="Predicted"
+                title="Overlay a history-driven prediction of your everyday spending on top of the scheduled-only line"
+              />
+            )}
+            {hasSpendingModel && showPredicted && (
+              <Switch
+                checked={predictedByCategory}
+                onChange={setPredictedByCategory}
+                label="By category"
+                title="Break the predicted spending into stacked per-category bands"
+              />
+            )}
+            {hasSpendingModel && showPredicted && (
+              <Switch
+                checked={showTrend}
+                onChange={setShowTrend}
+                label="Trend"
+                title="Layer a bounded spending trend on the prediction (ramps for ~a quarter, then holds)"
+              />
+            )}
             <HorizonSelector value={horizon} onChange={setHorizon} />
           </div>
         </div>
@@ -109,6 +186,16 @@ export function Dashboard() {
             accounts={accounts}
             reservedExpanded={reservedExpanded}
             availableExpanded={availableExpanded}
+            showPredicted={showPredicted}
+            predictedByCategory={predictedByCategory}
+          />
+        )}
+        {showPredicted && hasSpendingModel && spendingModel && (
+          <PredictionExplainer
+            model={spendingModel}
+            excluded={excludeCats}
+            onExclude={excludeCategory}
+            onInclude={includeCategory}
           />
         )}
       </Card>
@@ -131,6 +218,7 @@ export function Dashboard() {
       )}
 
       {forecast && <ForecastWarnings forecast={forecast} />}
+      <GoalReconciliation />
       {forecast && <GoalStatus forecast={forecast} />}
     </div>
   )

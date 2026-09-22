@@ -95,6 +95,42 @@ function draftToCents(d: DraftEntry): number {
   return d.sign === 'negative' ? -abs : abs
 }
 
+// An entry's sign defaults to positive (income) when its category is "Income"
+// or its name mentions a "venmo back" repayment. Applied only on the edit that
+// FIRST makes the trigger true, so a manual sign toggle afterward is respected
+// on later edits to the same row.
+const INCOME_CATEGORY = 'income'
+
+function isIncomeCategory(category: string): boolean {
+  return category.trim().toLowerCase() === INCOME_CATEGORY
+}
+
+function mentionsVenmoBack(name: string): boolean {
+  return /venmo\s+back/i.test(name)
+}
+
+function applyAutoSign(
+  prev: DraftEntry,
+  patch: Partial<DraftEntry>,
+): DraftEntry {
+  const next = { ...prev, ...patch }
+  if (
+    patch.category !== undefined &&
+    isIncomeCategory(next.category) &&
+    !isIncomeCategory(prev.category)
+  ) {
+    next.sign = 'positive'
+  }
+  if (
+    patch.name !== undefined &&
+    mentionsVenmoBack(next.name) &&
+    !mentionsVenmoBack(prev.name)
+  ) {
+    next.sign = 'positive'
+  }
+  return next
+}
+
 // Strip everything except digits and a single decimal point. The sign is
 // owned by the toggle button, so any typed/pasted minus is dropped here.
 // Caps the decimal portion at two digits.
@@ -233,7 +269,9 @@ export function LedgerNote({
 
   const updateRow = (id: string, patch: Partial<DraftEntry>) => {
     setDrafts((prev) =>
-      ensureTrailing(prev.map((d) => (d.id === id ? { ...d, ...patch } : d))),
+      ensureTrailing(
+        prev.map((d) => (d.id === id ? applyAutoSign(d, patch) : d)),
+      ),
     )
   }
 

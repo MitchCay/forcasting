@@ -55,12 +55,32 @@ const compactUSD = (cents: number) =>
     notation: "compact",
   }).format(cents / 100);
 
+// Predicted (adjusted) line color + the category-band palette. Amber is
+// reserved for the predicted line so it never collides with a category band.
+const PREDICTED_COLOR = "#fbbf24";
+const CATEGORY_COLORS = [
+  "#6ea8ff",
+  "#5bc0c2",
+  "#a78bfa",
+  "#f472b6",
+  "#4ade80",
+  "#8cb9ff",
+  "#e879a6",
+];
+const OTHER_COLOR = "#64748b";
+const OTHER_KEY = "__other__";
+const MAX_CAT_BANDS = 7; // remaining categories roll into a single "Other" band
+const catColor = (i: number) => CATEGORY_COLORS[i % CATEGORY_COLORS.length]!;
+const spendKey = (cat: string): `spend_${string}` => `spend_${cat}`;
+
 export function ForecastChart({
   forecast,
   horizon,
   accounts,
   reservedExpanded = false,
   availableExpanded = false,
+  showPredicted = false,
+  predictedByCategory = false,
 }: {
   forecast: ForecastResponse;
   horizon: ForecastHorizon;
@@ -69,6 +89,10 @@ export function ForecastChart({
   accounts?: Account[];
   reservedExpanded?: boolean;
   availableExpanded?: boolean;
+  /** Show the history-driven predicted (adjusted) balance line. */
+  showPredicted?: boolean;
+  /** Decompose the base→predicted gap into stacked per-category spend bands. */
+  predictedByCategory?: boolean;
 }) {
   // Split accounts into the two forecast buckets. Credit cards are excluded
   // from both — their balances are tracked separately and only hit cash on
@@ -94,6 +118,21 @@ export function ForecastChart({
   const showAvailableBreakout =
     availableExpanded && availableAccounts.length > 1;
 
+  // Predicted (adjusted) line + optional per-category decomposition. Both
+  // require the server to have attached a spending model with categories.
+  const spendingCats = useMemo(
+    () => forecast.spendingModel?.categories ?? [],
+    [forecast.spendingModel],
+  );
+  const hasModel = spendingCats.length > 0;
+  const showPredictedLine = showPredicted && hasModel;
+  const showCategoryBreakout = showPredictedLine && predictedByCategory;
+  const topCats = useMemo(
+    () => spendingCats.slice(0, MAX_CAT_BANDS).map((c) => c.category),
+    [spendingCats],
+  );
+  const hasOther = spendingCats.length > topCats.length;
+
   // ── Build chart data ──────────────────────────────────────────────
   // Recharts likes a flat array. We keep cents on the data and format on
   // display so axis math stays integer-precise. The full point is attached
@@ -102,18 +141,37 @@ export function ForecastChart({
   // the tooltip can show "−$1,200 net" without re-deriving from event sums.
   const data = useMemo(
     () =>
-      forecast.points.map((p, i, arr) => ({
-        date: p.date,
-        available: p.availableBalanceCents,
-        reserved: p.reservedBalanceCents,
-        total: p.availableBalanceCents + p.reservedBalanceCents,
-        availableNetChange:
-          i === 0
-            ? 0
-            : p.availableBalanceCents - arr[i - 1]!.availableBalanceCents,
-        point: p,
-      })),
-    [forecast.points],
+      forecast.points.map((p, i, arr) => {
+        const adjusted = p.adjustedAvailableBalanceCents ?? p.availableBalanceCents;
+        const abc = p.adjustedByCategory ?? {};
+        const row: ChartDatum = {
+          date: p.date,
+          available: p.availableBalanceCents,
+          reserved: p.reservedBalanceCents,
+          total: p.availableBalanceCents + p.reservedBalanceCents,
+          availableNetChange:
+            i === 0
+              ? 0
+              : p.availableBalanceCents - arr[i - 1]!.availableBalanceCents,
+          adjusted,
+          // Hidden stack floor so the category bands sit BETWEEN the predicted
+          // line and the base available line (adjusted + Σcategories = base).
+          adjustedBase: adjusted,
+          point: p,
+        };
+        let topSum = 0;
+        for (const c of topCats) {
+          const v = abc[c] ?? 0;
+          row[spendKey(c)] = v;
+          topSum += v;
+        }
+        // Other always absorbs the remainder so the bands meet the base line
+        // exactly (a category can round out of the summary yet still accrue).
+        const drag = p.availableBalanceCents - adjusted;
+        row[spendKey(OTHER_KEY)] = Math.max(0, drag - topSum);
+        return row;
+      }),
+    [forecast.points, topCats, hasOther],
   );
 
   // ── Compute y-axis bounds + decide on stroke/fill colors ─────────
@@ -130,6 +188,10 @@ export function ForecastChart({
       if (p.available > max) max = p.available;
       if (p.reserved < min) min = p.reserved;
       if (p.reserved > max) max = p.reserved;
+      if (showPredictedLine) {
+        if (p.adjusted < min) min = p.adjusted;
+        if (p.adjusted > max) max = p.adjusted;
+      }
     }
     // Pad the range a little so the line doesn't sit on the chart edge.
     const span = Math.max(1, max - min);
@@ -144,7 +206,7 @@ export function ForecastChart({
       crossesZero: crosses,
       allNegative: max <= 0 && min < 0,
     };
-  }, [data]);
+  }, [data, showPredictedLine]);
 
   const strokeColor = crossesZero
     ? "url(#availableStroke)"
@@ -230,10 +292,62 @@ export function ForecastChart({
               availableAccounts={
                 showAvailableBreakout ? availableAccounts : []
               }
+              predicted={showPredictedLine}
+              breakout={showCategoryBreakout}
+              topCats={topCats}
+              hasOther={hasOther}
             />
           }
           cursor={{ stroke: "var(--muted)" }}
         />
+
+        {/* Category breakout: stacked bands filling the gap between the
+            predicted line and the base available line, split by category.
+            A hidden floor (the predicted balance) offsets the stack so the
+            bands sit BETWEEN predicted and available rather than from zero. */}
+        {showCategoryBreakout && (
+          <>
+            <Area
+              type="monotone"
+              dataKey="adjustedBase"
+              stackId="spend"
+              stroke="none"
+              fill="none"
+              fillOpacity={0}
+              dot={false}
+              isAnimationActive={false}
+              legendType="none"
+              name="__spendfloor__"
+            />
+            {topCats.map((c, i) => (
+              <Area
+                key={c}
+                type="monotone"
+                dataKey={`spend_${c}`}
+                stackId="spend"
+                stroke={catColor(i)}
+                strokeWidth={0.5}
+                fill={catColor(i)}
+                fillOpacity={0.5}
+                dot={false}
+                isAnimationActive={false}
+                name={`Spend · ${c}`}
+              />
+            ))}
+            <Area
+              type="monotone"
+              dataKey={`spend_${OTHER_KEY}`}
+              stackId="spend"
+              stroke={OTHER_COLOR}
+              strokeWidth={0.5}
+              fill={OTHER_COLOR}
+              fillOpacity={0.45}
+              dot={false}
+              isAnimationActive={false}
+              name="Spend · Other"
+            />
+          </>
+        )}
 
         {/* Reserved. Either a single faint dashed total line, or — when
             expanded — one slightly-varied dashed line per reserved account
@@ -266,9 +380,9 @@ export function ForecastChart({
           />
         )}
 
-        {/* Available. Normally a filled area with a zero-crossing gradient.
-            When expanded, per-account lines carry the detail and the summed
-            area is dropped entirely. */}
+        {/* Available. A filled area normally; a plain line when per-account
+            expanded (detail carried by those lines) or when the category
+            breakout is on (so the bands underneath stay visible). */}
         {showAvailableBreakout ? (
           availableAccounts.map((a, i) => (
             <Line
@@ -283,6 +397,16 @@ export function ForecastChart({
               name={`Available · ${a.name}`}
             />
           ))
+        ) : showCategoryBreakout ? (
+          <Line
+            type="monotone"
+            dataKey="available"
+            stroke="var(--accent)"
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+            name="available"
+          />
         ) : (
           <Area
             type="monotone"
@@ -293,6 +417,20 @@ export function ForecastChart({
             dot={false}
             isAnimationActive={false}
             name="available"
+          />
+        )}
+
+        {/* Predicted (adjusted) balance — history-driven, dashed amber. */}
+        {showPredictedLine && (
+          <Line
+            type="monotone"
+            dataKey="adjusted"
+            stroke={PREDICTED_COLOR}
+            strokeWidth={2}
+            strokeDasharray="5 3"
+            dot={false}
+            isAnimationActive={false}
+            name="predicted"
           />
         )}
       </ComposedChart>
@@ -311,19 +449,31 @@ type ChartDatum = {
   reserved: number;
   total: number;
   availableNetChange: number;
+  adjusted: number;
+  adjustedBase: number;
   point: ForecastPoint;
-};
+} & Record<`spend_${string}`, number>;
 
 function ForecastTooltip({
   active,
   payload,
   reservedAccounts = [],
   availableAccounts = [],
+  predicted = false,
+  breakout = false,
+  topCats = [],
+  hasOther = false,
 }: TooltipProps<number, string> & {
   /** When non-empty, the tooltip lists these accounts individually instead
       of the single summed Available / Reserved rows. */
   reservedAccounts?: Account[];
   availableAccounts?: Account[];
+  /** Show the predicted (adjusted) balance row. */
+  predicted?: boolean;
+  /** Show the per-category projected-spend breakdown. */
+  breakout?: boolean;
+  topCats?: string[];
+  hasOther?: boolean;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const datum = payload[0]?.payload as ChartDatum | undefined;
@@ -405,6 +555,17 @@ function ForecastTooltip({
               <Row label="Reserved" value={formatUSD(datum.reserved)} muted />
             )}
         <Row label="Total" value={formatUSD(datum.total)} muted />
+        {predicted && point.adjustedAvailableBalanceCents != null && (
+          <Row
+            label="Predicted"
+            value={formatUSD(point.adjustedAvailableBalanceCents)}
+            kind={
+              point.adjustedAvailableBalanceCents < datum.available
+                ? "expense"
+                : undefined
+            }
+          />
+        )}
         {hasActivity && datum.availableNetChange !== 0 && (
           <Row
             label="Net to Available"
@@ -499,6 +660,45 @@ function ForecastTooltip({
           ))}
         </Section>
       )}
+
+      {breakout &&
+        point.adjustedByCategory &&
+        point.adjustedAvailableBalanceCents != null &&
+        (() => {
+          const abc = point.adjustedByCategory!;
+          // Keep each category's ORIGINAL index so its swatch matches the band
+          // color (bands are drawn in topCats order via catColor(i)).
+          const rows = topCats
+            .map((c, i) => ({ c, v: abc[c] ?? 0, color: catColor(i) }))
+            .filter((r) => r.v > 0);
+          const topSum = topCats.reduce((sum, c) => sum + (abc[c] ?? 0), 0);
+          const other = Math.max(
+            0,
+            datum.available - point.adjustedAvailableBalanceCents! - topSum,
+          );
+          if (rows.length === 0 && other <= 0) return null;
+          return (
+            <Section title="Projected spend to date">
+              {rows.map((r) => (
+                <EventLine
+                  key={r.c}
+                  name={r.c}
+                  amount={`−${formatUSD(r.v)}`}
+                  kind="expense"
+                  swatch={r.color}
+                />
+              ))}
+              {other > 0 && (
+                <EventLine
+                  name="Other"
+                  amount={`−${formatUSD(other)}`}
+                  kind="expense"
+                  swatch={OTHER_COLOR}
+                />
+              )}
+            </Section>
+          );
+        })()}
     </div>
   );
 }
@@ -559,6 +759,7 @@ function EventLine({
   meta,
   strong,
   nested,
+  swatch,
 }: {
   name: string;
   amount: string;
@@ -568,6 +769,8 @@ function EventLine({
   strong?: boolean;
   /** Indent + de-emphasize — used for individual goals beneath their group. */
   nested?: boolean;
+  /** Optional color dot that ties the row to its chart band. */
+  swatch?: string;
 }) {
   const cls = [
     "forecast-tooltip__row",
@@ -579,6 +782,12 @@ function EventLine({
   return (
     <div className={cls}>
       <span className="forecast-tooltip__event-name">
+        {swatch && (
+          <span
+            className="forecast-tooltip__swatch"
+            style={{ background: swatch }}
+          />
+        )}
         {name}
         {meta && <span className="forecast-tooltip__meta"> · {meta}</span>}
       </span>
